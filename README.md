@@ -89,13 +89,17 @@ docker compose up --build
 
 ## Using this for a new client
 
-1. Clone this repo (or use it as a template repo on GitHub)
-2. Replace `app/models/item.py` and `app/api/items.py` with the client's
-   actual domain objects, following the same pattern
-3. Update `frontend/src/App.jsx` and add real pages/components
-4. Update `.env` with the client's actual database credentials
-5. Run `alembic revision --autogenerate -m "initial schema"` then
-   `alembic upgrade head` to create the real tables
+See `CUSTOMIZING.md` for the full checklist. Short version:
+
+1. Edit `client.config.json` — app name, accent color, tier labels.
+   No code changes needed for this part.
+2. Run `python3 backend/scaffold_entity.py EntityName` to generate a
+   new model + router pair following the established pattern, then
+   adjust its fields to match what the client actually needs.
+3. Update `.env` with the client's real database credentials.
+4. Lock down `/auth/register` before going live — see `CUSTOMIZING.md`.
+5. Run `alembic revision --autogenerate` then `alembic upgrade head`
+   to create the real tables.
 
 ## Not included yet (add as needed per client)
 

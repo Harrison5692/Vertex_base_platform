@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { tierLabel, useClientConfig } from '../lib/clientConfig'
 
 export default function Home() {
   const { user } = useAuth()
+  const config = useClientConfig()
   const [accounts, setAccounts] = useState([])
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -52,7 +54,7 @@ export default function Home() {
                 <ul>
                   {accounts.map((a) => (
                     <li key={a.id}>
-                      {a.name || a.email} — tier {a.tier}
+                      {a.name || a.email} — {tierLabel(a.tier, config)}
                     </li>
                   ))}
                 </ul>

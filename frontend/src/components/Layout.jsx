@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { useClientConfig } from '../lib/clientConfig'
 
 export default function Layout({ children }) {
   const { user, logout } = useAuth()
+  const config = useClientConfig()
   const navigate = useNavigate()
 
   function handleLogout() {
@@ -13,7 +15,7 @@ export default function Layout({ children }) {
   return (
     <div style={{ fontFamily: 'system-ui' }}>
       <header style={styles.header}>
-        <span style={styles.title}>Vertex Base</span>
+        <span style={styles.title}>{config.app_name}</span>
         <div style={styles.right}>
           {user && <span style={styles.email}>{user.email}</span>}
           <button onClick={handleLogout} style={styles.button}>

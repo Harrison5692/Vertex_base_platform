@@ -89,7 +89,7 @@ const styles = {
     padding: 10,
     fontSize: 14,
     fontWeight: 600,
-    background: '#1a9c8f',
+    background: 'var(--primary-color, #1a9c8f)',
     color: '#fff',
     border: 'none',
     borderRadius: 4,
