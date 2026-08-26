@@ -60,8 +60,7 @@ async def register(account_in: AccountCreate, session: AsyncSession = Depends(ge
         hashed_password=hash_password(account_in.password) if account_in.password else None,
     )
     session.add(account)
-    await session.commit()
-    await session.refresh(account)
+    await session.flush()  # assigns account.id without committing/expiring attributes
 
     await log_audit(
         session,
@@ -72,6 +71,7 @@ async def register(account_in: AccountCreate, session: AsyncSession = Depends(ge
         new_values=account.model_dump(exclude={"hashed_password"}),
     )
     await session.commit()
+    await session.refresh(account)
 
     return account
 
@@ -157,8 +157,6 @@ async def reset_password(
     account.reset_token_hash = None
     account.reset_token_expires = None
     session.add(account)
-    await session.commit()
-    await session.refresh(account)
 
     await log_audit(
         session,
@@ -169,5 +167,6 @@ async def reset_password(
         new_values={"password_reset": True},
     )
     await session.commit()
+    await session.refresh(account)
 
     return account

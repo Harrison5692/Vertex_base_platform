@@ -85,8 +85,22 @@ class Transaction(TransactionBase, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
-class TransactionCreate(TransactionBase):
-    pass
+class TransactionCreate(SQLModel):
+    """Deliberately NOT inheriting TransactionBase — that would expose
+    subtotal/tax_amount/total (server-computed, silently overwritten
+    anyway) and related_transaction_id (system-managed only, set by
+    the /refund endpoint — a client should never be able to claim a
+    transaction is a refund of another one just by setting this field
+    on creation). Only fields a client should legitimately supply
+    live here."""
+
+    account_id: int | None = None
+    guest_label: str | None = None
+    type: TransactionType
+    payment_method: PaymentMethod | None = None
+    notes: str | None = None
+    deposit_amount: float | None = None
+    balance_due: float | None = None
 
 
 class TransactionRead(TransactionBase):

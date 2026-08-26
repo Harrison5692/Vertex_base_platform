@@ -62,8 +62,6 @@ async def update_account(
     for field, value in account_in.model_dump(exclude_unset=True).items():
         setattr(account, field, value)
     session.add(account)
-    await session.commit()
-    await session.refresh(account)
 
     await log_audit(
         session,
@@ -75,6 +73,7 @@ async def update_account(
         new_values=account.model_dump(exclude={"hashed_password"}),
     )
     await session.commit()
+    await session.refresh(account)
 
     return account
 
@@ -105,7 +104,6 @@ async def deactivate_account(
         deleted_by=current.id,
     )
     session.add(archive_entry)
-    await session.commit()
 
     await log_audit(
         session,
@@ -148,9 +146,6 @@ async def reinstate_account(
         archive_entry.restored_at = datetime.utcnow()
         session.add(archive_entry)
 
-    await session.commit()
-    await session.refresh(account)
-
     await log_audit(
         session,
         table_name="account",
@@ -161,5 +156,6 @@ async def reinstate_account(
         new_values={"is_active": True},
     )
     await session.commit()
+    await session.refresh(account)
 
     return account

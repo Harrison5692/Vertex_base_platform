@@ -135,8 +135,7 @@ async def create_transaction(
         },
     )
     session.add(transaction)
-    await session.commit()
-    await session.refresh(transaction)
+    await session.flush()  # assigns transaction.id without committing/expiring attributes
 
     lines = []
     for line_in in tx_in.lines:
@@ -149,9 +148,7 @@ async def create_transaction(
         )
         session.add(line)
         lines.append(line)
-    await session.commit()
-    for line in lines:
-        await session.refresh(line)
+    await session.flush()  # assigns each line.id, still no commit/expire
 
     await log_audit(
         session,
@@ -162,6 +159,9 @@ async def create_transaction(
         new_values={**transaction.model_dump(), "lines": [l.model_dump() for l in lines]},
     )
     await session.commit()
+    await session.refresh(transaction)
+    for line in lines:
+        await session.refresh(line)
 
     return TransactionWithLines(**transaction.model_dump(), lines=lines)
 
@@ -204,8 +204,7 @@ async def refund_transaction(
         created_by=current.id,
     )
     session.add(refund)
-    await session.commit()
-    await session.refresh(refund)
+    await session.flush()  # assigns refund.id without committing/expiring attributes
 
     await log_audit(
         session,
@@ -216,5 +215,6 @@ async def refund_transaction(
         new_values={**refund.model_dump(), "refunds_transaction_id": original.id},
     )
     await session.commit()
+    await session.refresh(refund)
 
     return TransactionWithLines(**refund.model_dump(), lines=[])

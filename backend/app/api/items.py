@@ -37,8 +37,7 @@ async def create_item(
 ):
     item = Item.model_validate(item_in)
     session.add(item)
-    await session.commit()
-    await session.refresh(item)
+    await session.flush()  # assigns item.id without committing/expiring attributes
 
     await log_audit(
         session,
@@ -49,6 +48,7 @@ async def create_item(
         new_values=item.model_dump(),
     )
     await session.commit()
+    await session.refresh(item)
 
     return item
 
@@ -75,8 +75,6 @@ async def update_item(
     for field, value in item_in.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
     session.add(item)
-    await session.commit()
-    await session.refresh(item)
 
     await log_audit(
         session,
@@ -88,6 +86,7 @@ async def update_item(
         new_values=item.model_dump(),
     )
     await session.commit()
+    await session.refresh(item)
 
     return item
 
@@ -103,7 +102,6 @@ async def delete_item(
         raise HTTPException(status_code=404, detail="Item not found")
     old_values = item.model_dump()
     await session.delete(item)
-    await session.commit()
 
     await log_audit(
         session,
