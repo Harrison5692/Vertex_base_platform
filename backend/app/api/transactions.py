@@ -185,7 +185,20 @@ async def refund_transaction(
     if not original:
         raise HTTPException(status_code=404, detail="Transaction not found")
     if original.type in (TransactionType.refunded, TransactionType.voided):
-        raise HTTPException(status_code=409, detail="Transaction has already been refunded or voided")
+        raise HTTPException(status_code=409, detail="Cannot refund a refund/void transaction itself")
+
+    # The original transaction's own `type` never changes (append-only
+    # history) — so "already refunded" has to be checked by looking for
+    # an EXISTING refund row that points back at this one, not by
+    # inspecting original.type.
+    existing_refund = await session.exec(
+        select(Transaction).where(
+            Transaction.related_transaction_id == transaction_id,
+            Transaction.type == TransactionType.refunded,
+        )
+    )
+    if existing_refund.first():
+        raise HTTPException(status_code=409, detail="Transaction has already been refunded")
 
     refund_amount = body.amount if body.amount is not None else (original.total or 0.0)
     if refund_amount <= 0 or refund_amount > (original.total or 0.0):
