@@ -8,6 +8,8 @@ verifying login tokens.
 """
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 
 import bcrypt
 import jwt
@@ -45,3 +47,15 @@ def decode_access_token(token: str) -> str | None:
         return payload.get("sub")
     except jwt.PyJWTError:
         return None
+
+
+def generate_reset_token() -> str:
+    """The raw token — sent to the account, never stored as-is."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(raw_token: str) -> str:
+    """What's actually stored in Account.reset_token_hash. A reset
+    token is a bearer credential just like a password — hashing it
+    means a leaked database doesn't hand out working reset links."""
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()

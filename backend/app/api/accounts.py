@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
 from app.db.session import get_session
 from app.models.account import Account, AccountRead, AccountUpdate
@@ -57,11 +58,24 @@ async def update_account(
     account = await session.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    old_values = account.model_dump(exclude={"hashed_password"})
     for field, value in account_in.model_dump(exclude_unset=True).items():
         setattr(account, field, value)
     session.add(account)
     await session.commit()
     await session.refresh(account)
+
+    await log_audit(
+        session,
+        table_name="account",
+        record_id=account.id,
+        action="update",
+        changed_by=current.id,
+        old_values=old_values,
+        new_values=account.model_dump(exclude={"hashed_password"}),
+    )
+    await session.commit()
+
     return account
 
 
@@ -91,6 +105,17 @@ async def deactivate_account(
         deleted_by=current.id,
     )
     session.add(archive_entry)
+    await session.commit()
+
+    await log_audit(
+        session,
+        table_name="account",
+        record_id=account.id,
+        action="delete",
+        changed_by=current.id,
+        old_values={"is_active": True},
+        new_values={"is_active": False},
+    )
     await session.commit()
 
 
@@ -125,4 +150,16 @@ async def reinstate_account(
 
     await session.commit()
     await session.refresh(account)
+
+    await log_audit(
+        session,
+        table_name="account",
+        record_id=account.id,
+        action="update",
+        changed_by=current.id,
+        old_values={"is_active": False},
+        new_values={"is_active": True},
+    )
+    await session.commit()
+
     return account

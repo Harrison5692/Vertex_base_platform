@@ -20,10 +20,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
 from app.db.session import get_session
 from app.models.account import Account
-from app.models.transaction import Transaction, TransactionCreate, TransactionRead
+from app.models.transaction import Transaction, TransactionCreate, TransactionRead, TransactionType
 from app.models.transaction_line import (
     TransactionLine,
     TransactionLineCreate,
@@ -43,6 +44,11 @@ class TransactionWithLines(TransactionRead):
 class TransactionCreateRequest(TransactionCreate):
     lines: list[TransactionLineCreate]
     tax_amount: float | None = None
+
+
+class RefundRequest(BaseModel):
+    amount: float | None = None  # None = full refund of the original total
+    notes: str | None = None
 
 
 @router.get(
@@ -147,4 +153,68 @@ async def create_transaction(
     for line in lines:
         await session.refresh(line)
 
+    await log_audit(
+        session,
+        table_name="transaction",
+        record_id=transaction.id,
+        action="create",
+        changed_by=current_account.id,
+        new_values={**transaction.model_dump(), "lines": [l.model_dump() for l in lines]},
+    )
+    await session.commit()
+
     return TransactionWithLines(**transaction.model_dump(), lines=lines)
+
+
+@router.post("/{transaction_id}/refund", response_model=TransactionWithLines, status_code=201)
+async def refund_transaction(
+    transaction_id: int,
+    body: RefundRequest,
+    session: AsyncSession = Depends(get_session),
+    current: Account = Depends(require_min_tier(2)),
+):
+    """Staff and above only. Creates a NEW transaction of type
+    'refunded' linked back to the original via related_transaction_id
+    — the original row is never edited, per the append-only history
+    rule. Defaults to a full refund of the original's total; pass
+    `amount` for a partial refund. Line items aren't itemized on the
+    refund by default (a partial refund isn't necessarily tied to
+    specific items) — that's a vertical-specific extension if a
+    deployment needs it."""
+    original = await session.get(Transaction, transaction_id)
+    if not original:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if original.type in (TransactionType.refunded, TransactionType.voided):
+        raise HTTPException(status_code=409, detail="Transaction has already been refunded or voided")
+
+    refund_amount = body.amount if body.amount is not None else (original.total or 0.0)
+    if refund_amount <= 0 or refund_amount > (original.total or 0.0):
+        raise HTTPException(status_code=422, detail="Refund amount must be > 0 and <= original total")
+
+    refund = Transaction(
+        account_id=original.account_id,
+        guest_label=original.guest_label,
+        type=TransactionType.refunded,
+        payment_method=original.payment_method,
+        notes=body.notes,
+        related_transaction_id=original.id,
+        subtotal=-refund_amount,
+        tax_amount=0.0,
+        total=-refund_amount,
+        created_by=current.id,
+    )
+    session.add(refund)
+    await session.commit()
+    await session.refresh(refund)
+
+    await log_audit(
+        session,
+        table_name="transaction",
+        record_id=refund.id,
+        action="create",
+        changed_by=current.id,
+        new_values={**refund.model_dump(), "refunds_transaction_id": original.id},
+    )
+    await session.commit()
+
+    return TransactionWithLines(**refund.model_dump(), lines=[])

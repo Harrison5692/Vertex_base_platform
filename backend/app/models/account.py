@@ -34,6 +34,8 @@ class Account(AccountBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     hashed_password: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    reset_token_hash: str | None = Field(default=None, index=True)
+    reset_token_expires: datetime | None = Field(default=None)
 
     @property
     def can_login(self) -> bool:

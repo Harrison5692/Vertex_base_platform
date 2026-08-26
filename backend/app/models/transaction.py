@@ -6,11 +6,18 @@ Transaction is the ORDER HEADER, not a single line item — it holds
 who/when/how-paid/totals. The actual items sold live in
 TransactionLine (see transaction_line.py), one row per item in the
 sale, because a real sale is a cart of items, not one item per
-checkout. This split is what "multi-item transaction" means:
+checkout. This split is what "multi-item transaction" means.
+
 account_id is nullable on purpose: a walk-in/guest purchase (retail,
 a one-off cafe sale) has no account behind it at all. guest_label
 holds a free-text name/note for that case ("walk-in", "cash sale"),
 so the record isn't a bare null with no human-readable trace.
+
+related_transaction_id links a refund/void back to the original sale
+it reverses. This table is append-only — a refund is a NEW Transaction
+row with type=refunded, never an edit of the original — so this FK is
+what actually connects the two records instead of leaving someone to
+guess by matching timestamps.
 
 payment_method is deliberately a loose string enum, not a payment
 processor integration — this base build doesn't compete with
@@ -58,6 +65,9 @@ class TransactionBase(SQLModel):
     type: TransactionType
     payment_method: PaymentMethod | None = Field(default=None)
     notes: str | None = None
+    related_transaction_id: int | None = Field(
+        default=None, foreign_key="transaction.id", index=True
+    )
 
     subtotal: float | None = Field(default=None)
     tax_amount: float | None = Field(default=None)
