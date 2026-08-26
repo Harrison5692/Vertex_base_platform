@@ -25,6 +25,7 @@ from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
 from app.db.session import get_session
 from app.models.account import Account
+from app.models.item import Item
 from app.models.transaction import Transaction, TransactionCreate, TransactionRead, TransactionType
 from app.models.transaction_line import (
     TransactionLine,
@@ -119,6 +120,19 @@ async def create_transaction(
 
     if not tx_in.lines:
         raise HTTPException(status_code=422, detail="A transaction needs at least one line item")
+
+    # Validate every referenced item exists BEFORE creating anything —
+    # letting a bad item_id reach the database insert means a raw FK
+    # violation (500) instead of a clean, actionable error.
+    item_ids = {line.item_id for line in tx_in.lines}
+    result = await session.exec(select(Item.id).where(Item.id.in_(item_ids)))
+    found_ids = set(result.all())
+    missing_ids = item_ids - found_ids
+    if missing_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Item id(s) not found: {sorted(missing_ids)}",
+        )
 
     subtotal = sum(line.quantity * line.unit_price for line in tx_in.lines)
     tax_amount = tx_in.tax_amount or 0.0
