@@ -10,10 +10,13 @@ from app.core.config import settings
 
 # Import all models here so Alembic can detect them for autogenerate
 from app.models.account import Account  # noqa: F401
+from app.models.attachment import Attachment  # noqa: F401
 from app.models.audit_log import AuditLog  # noqa: F401
 from app.models.deleted_account import DeletedAccount  # noqa: F401
 from app.models.item import Item  # noqa: F401
+from app.models.notification import Notification  # noqa: F401
 from app.models.transaction import Transaction  # noqa: F401
+from app.models.transaction_line import TransactionLine  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

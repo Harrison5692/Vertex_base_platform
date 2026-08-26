@@ -1,17 +1,17 @@
 """
-Example domain entity — replace with the client's actual tracked
-records (patients, orders, work tickets, whatever the business runs on).
+Item — the general "thing the business sells or tracks" entity.
+Fields beyond `name`/`description` are all optional on purpose:
+- price/sku/stock_quantity: POS and retail
+- duration_minutes: services (massage, pressure washing) and
+  catering (used alongside price for a package)
+A pure POS business just leaves duration_minutes null; a pure
+service business leaves sku/stock_quantity null. One table, several
+business types, no schema fork needed.
 
 Optionally tied to an Account via account_id — e.g. a purchase, work
 order, or service record belonging to a specific tier-1 client.
 Nullable, since not every business's "item" is client-specific (some
 are just internal inventory/records with no owner).
-
-This demonstrates the pattern the whole template follows: a shared
-Base class holds the fields, a `table=True` subclass becomes the
-actual DB table, and lightweight subclasses become the API's
-request/response shapes. One source of truth per field instead of
-a separate SQLAlchemy model + several Pydantic schemas.
 """
 
 from datetime import datetime
@@ -22,8 +22,17 @@ from sqlmodel import Field, SQLModel
 class ItemBase(SQLModel):
     name: str = Field(index=True, max_length=200)
     description: str | None = None
+    category: str | None = Field(default=None, index=True, max_length=100)
     is_active: bool = Field(default=True, index=True)
     account_id: int | None = Field(default=None, foreign_key="account.id", index=True)
+
+    # POS / retail
+    price: float | None = Field(default=None)
+    sku: str | None = Field(default=None, unique=True, index=True, max_length=100)
+    stock_quantity: int | None = Field(default=None)
+
+    # Services / catering
+    duration_minutes: int | None = Field(default=None)
 
 
 class Item(ItemBase, table=True):
@@ -53,4 +62,9 @@ class ItemUpdate(SQLModel):
 
     name: str | None = None
     description: str | None = None
+    category: str | None = None
     is_active: bool | None = None
+    price: float | None = None
+    sku: str | None = None
+    stock_quantity: int | None = None
+    duration_minutes: int | None = None
