@@ -17,6 +17,7 @@ sees only their own transactions, tier-2+ (staff) can see anyone's.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field as PydanticField
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -30,7 +31,6 @@ from app.models.transaction_line import (
     TransactionLineCreate,
     TransactionLineRead,
 )
-from pydantic import BaseModel
 
 router = APIRouter(
     prefix="/transactions", tags=["transactions"], dependencies=[Depends(get_current_account)]
@@ -43,11 +43,11 @@ class TransactionWithLines(TransactionRead):
 
 class TransactionCreateRequest(TransactionCreate):
     lines: list[TransactionLineCreate]
-    tax_amount: float | None = None
+    tax_amount: float | None = PydanticField(default=None, ge=0)
 
 
 class RefundRequest(BaseModel):
-    amount: float | None = None  # None = full refund of the original total
+    amount: float | None = PydanticField(default=None, gt=0)  # None = full refund of the original total
     notes: str | None = None
 
 

@@ -27,9 +27,9 @@ class ItemBase(SQLModel):
     account_id: int | None = Field(default=None, foreign_key="account.id", index=True)
 
     # POS / retail
-    price: float | None = Field(default=None)
+    price: float | None = Field(default=None, ge=0)
     sku: str | None = Field(default=None, unique=True, index=True, max_length=100)
-    stock_quantity: int | None = Field(default=None)
+    stock_quantity: int | None = Field(default=None, ge=0)
 
     # Services / catering
     duration_minutes: int | None = Field(default=None)
@@ -64,7 +64,7 @@ class ItemUpdate(SQLModel):
     description: str | None = None
     category: str | None = None
     is_active: bool | None = None
-    price: float | None = None
+    price: float | None = Field(default=None, ge=0)
     sku: str | None = None
-    stock_quantity: int | None = None
+    stock_quantity: int | None = Field(default=None, ge=0)
     duration_minutes: int | None = None

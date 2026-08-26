@@ -19,11 +19,12 @@ given deployment needs. can_login reflects which case it is.
 
 from datetime import datetime
 
+from pydantic import EmailStr
 from sqlmodel import Field, SQLModel
 
 
 class AccountBase(SQLModel):
-    email: str = Field(unique=True, index=True, max_length=255)
+    email: EmailStr = Field(unique=True, index=True, max_length=255)
     name: str | None = Field(default=None, max_length=200)
     phone: str | None = Field(default=None, max_length=30)
     tier: int = Field(default=1, index=True)
@@ -53,7 +54,7 @@ class AccountRead(AccountBase):
 
 class AccountUpdate(SQLModel):
     name: str | None = None
-    email: str | None = None
+    email: EmailStr | None = None
     phone: str | None = None
     tier: int | None = None
     is_active: bool | None = None

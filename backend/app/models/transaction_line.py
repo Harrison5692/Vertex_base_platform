@@ -17,9 +17,9 @@ from sqlmodel import Field, SQLModel
 class TransactionLineBase(SQLModel):
     transaction_id: int = Field(foreign_key="transaction.id", index=True)
     item_id: int = Field(foreign_key="item.id", index=True)
-    quantity: int = Field(default=1)
-    unit_price: float
-    line_total: float
+    quantity: int = Field(default=1, ge=1)
+    unit_price: float = Field(ge=0)
+    line_total: float = Field(ge=0)
 
 
 class TransactionLine(TransactionLineBase, table=True):
@@ -34,8 +34,8 @@ class TransactionLineCreate(SQLModel):
     parent Transaction is created."""
 
     item_id: int
-    quantity: int = 1
-    unit_price: float
+    quantity: int = Field(default=1, ge=1)
+    unit_price: float = Field(ge=0)
 
 
 class TransactionLineRead(TransactionLineBase):

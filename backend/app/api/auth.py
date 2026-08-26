@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import EmailStr
 from sqlmodel import SQLModel, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
 from app.core.deps import get_current_account
+from app.core.rate_limit import rate_limit
 from app.core.security import (
     create_access_token,
     generate_reset_token,
@@ -22,12 +24,12 @@ RESET_TOKEN_EXPIRE_MINUTES = 30
 
 
 class LoginRequest(SQLModel):
-    email: str
+    email: EmailStr
     password: str
 
 
 class PasswordResetRequest(SQLModel):
-    email: str
+    email: EmailStr
 
 
 class PasswordResetConfirm(SQLModel):
@@ -74,7 +76,7 @@ async def register(account_in: AccountCreate, session: AsyncSession = Depends(ge
     return account
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(rate_limit("login", max_attempts=5, window_seconds=300))])
 async def login(credentials: LoginRequest, session: AsyncSession = Depends(get_session)):
     result = await session.exec(select(Account).where(Account.email == credentials.email))
     account = result.first()
@@ -94,7 +96,10 @@ async def read_current_account(current_account: Account = Depends(get_current_ac
     return current_account
 
 
-@router.post("/request-password-reset")
+@router.post(
+    "/request-password-reset",
+    dependencies=[Depends(rate_limit("password-reset", max_attempts=3, window_seconds=900))],
+)
 async def request_password_reset(
     body: PasswordResetRequest, session: AsyncSession = Depends(get_session)
 ):
