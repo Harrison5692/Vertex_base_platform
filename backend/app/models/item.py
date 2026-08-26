@@ -16,6 +16,7 @@ are just internal inventory/records with no owner).
 
 from datetime import datetime
 
+import sqlalchemy as sa
 from sqlmodel import Field, SQLModel
 
 
@@ -36,7 +37,18 @@ class ItemBase(SQLModel):
 
 
 class Item(ItemBase, table=True):
-    """Actual database table."""
+    """Actual database table. __table_args__ enforces price/stock at
+    the database level, not just via Pydantic validation on the API
+    layer — defense-in-depth for a shared template other services may
+    write to directly."""
+
+    __table_args__ = (
+        sa.CheckConstraint("price IS NULL OR price >= 0", name="ck_item_price_non_negative"),
+        sa.CheckConstraint(
+            "stock_quantity IS NULL OR stock_quantity >= 0",
+            name="ck_item_stock_quantity_non_negative",
+        ),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)

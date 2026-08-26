@@ -11,6 +11,7 @@ rather than computed on read for the same reason: it's a receipt,
 not a live calculation.
 """
 
+import sqlalchemy as sa
 from sqlmodel import Field, SQLModel
 
 
@@ -23,7 +24,15 @@ class TransactionLineBase(SQLModel):
 
 
 class TransactionLine(TransactionLineBase, table=True):
+    """__table_args__ enforces the same bounds at the database level
+    as TransactionLineCreate does via Pydantic — defense-in-depth."""
+
     __tablename__ = "transaction_line"
+    __table_args__ = (
+        sa.CheckConstraint("quantity >= 1", name="ck_transaction_line_quantity_positive"),
+        sa.CheckConstraint("unit_price >= 0", name="ck_transaction_line_unit_price_non_negative"),
+        sa.CheckConstraint("line_total >= 0", name="ck_transaction_line_line_total_non_negative"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
 
