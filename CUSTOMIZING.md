@@ -1,5 +1,22 @@
 # Customizing for a new client
 
+**Before any real deployment, close these two out — both are
+currently stubbed/permissive by design so the base build works with
+zero configuration, but neither is safe as-is for production:**
+
+- [ ] **Password reset returns the raw token in the API response**
+  (`POST /auth/request-password-reset`, see `backend/app/api/auth.py`).
+  There's no email service wired up, so the token comes back directly
+  for testability. Before going live: remove `dev_reset_token` from
+  the response and actually email the token instead — otherwise
+  anyone who knows an account's email can reset that password.
+- [ ] **Public registration accepts any tier** (`POST /auth/register`).
+  Right now the open signup form lets a caller set `tier` to
+  anything, including staff/admin levels. Before going live: restrict
+  tier 2+ creation to an existing staff/admin account (e.g. only
+  `/accounts/{id}` PATCH by a tier-2+ caller can promote someone),
+  not the public registration form.
+
 Concrete checklist, in order, for turning this template into a real
 client deployment. Nothing here is optional except where marked.
 
