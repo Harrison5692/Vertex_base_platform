@@ -21,7 +21,10 @@ guess by matching timestamps.
 
 payment_method is deliberately a loose string enum, not a payment
 processor integration — this base build doesn't compete with
-Stripe/Square, it just records how the money moved.
+Stripe/Square, it just records how the money moved. payment_reference
+is where a real processor's charge/payment id would be stored once one
+is wired in (see core/payments.py for the extension point) — nullable
+because nothing populates it today.
 
 subtotal/tax_amount/total are computed and stored at checkout time,
 not derived on the fly — tax rates change, and a historical receipt
@@ -64,6 +67,7 @@ class TransactionBase(SQLModel):
     guest_label: str | None = Field(default=None, max_length=200)
     type: TransactionType
     payment_method: PaymentMethod | None = Field(default=None)
+    payment_reference: str | None = Field(default=None, max_length=255, index=True)
     notes: str | None = None
     related_transaction_id: int | None = Field(
         default=None, foreign_key="transaction.id", index=True
