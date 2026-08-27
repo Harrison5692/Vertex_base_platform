@@ -16,7 +16,12 @@ Access follows the same tier pattern as accounts.py: a tier-1 account
 sees only their own transactions, tier-2+ (staff) can see anyone's.
 """
 
+from datetime import datetime
+import csv
+import io
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field as PydanticField
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -59,6 +64,54 @@ async def list_transactions(session: AsyncSession = Depends(get_session)):
     """Staff and above only — every transaction, across every account."""
     result = await session.exec(select(Transaction).order_by(Transaction.created_at.desc()))
     return result.all()
+
+
+@router.get("/export", dependencies=[Depends(require_min_tier(2))])
+async def export_transactions(
+    session: AsyncSession = Depends(get_session),
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+):
+    """Staff and above only. CSV export of transaction history —
+    every business wants a copy of its own sales data outside the
+    system (accounting, taxes, a spreadsheet). Deliberately placed
+    BEFORE /{transaction_id} below: a static path must be registered
+    ahead of a dynamic one sharing the same prefix, or FastAPI tries
+    to parse "export" as a transaction id and 422s before ever
+    reaching this route."""
+    query = select(Transaction).order_by(Transaction.created_at.asc())
+    if start_date:
+        query = query.where(Transaction.created_at >= start_date)
+    if end_date:
+        query = query.where(Transaction.created_at <= end_date)
+    result = await session.exec(query)
+    transactions = result.all()
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "id", "created_at", "type", "account_id", "guest_label", "payment_method",
+            "payment_reference", "subtotal", "tax_amount", "total",
+            "deposit_amount", "balance_due", "related_transaction_id", "created_by", "notes",
+        ]
+    )
+    for tx in transactions:
+        writer.writerow(
+            [
+                tx.id, tx.created_at.isoformat(), tx.type, tx.account_id, tx.guest_label,
+                tx.payment_method, tx.payment_reference, tx.subtotal, tx.tax_amount, tx.total,
+                tx.deposit_amount, tx.balance_due, tx.related_transaction_id, tx.created_by,
+                tx.notes,
+            ]
+        )
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=transactions.csv"},
+    )
 
 
 @router.get("/account/{account_id}", response_model=list[TransactionRead])

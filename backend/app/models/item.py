@@ -31,6 +31,7 @@ class ItemBase(SQLModel):
     price: float | None = Field(default=None, ge=0)
     sku: str | None = Field(default=None, unique=True, index=True, max_length=100)
     stock_quantity: int | None = Field(default=None, ge=0)
+    low_stock_threshold: int | None = Field(default=None, ge=0)
 
     # Services / catering
     duration_minutes: int | None = Field(default=None)
@@ -47,6 +48,10 @@ class Item(ItemBase, table=True):
         sa.CheckConstraint(
             "stock_quantity IS NULL OR stock_quantity >= 0",
             name="ck_item_stock_quantity_non_negative",
+        ),
+        sa.CheckConstraint(
+            "low_stock_threshold IS NULL OR low_stock_threshold >= 0",
+            name="ck_item_low_stock_threshold_non_negative",
         ),
     )
 
@@ -79,4 +84,5 @@ class ItemUpdate(SQLModel):
     price: float | None = Field(default=None, ge=0)
     sku: str | None = None
     stock_quantity: int | None = Field(default=None, ge=0)
+    low_stock_threshold: int | None = Field(default=None, ge=0)
     duration_minutes: int | None = None
