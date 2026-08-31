@@ -9,12 +9,16 @@ import Items from './pages/Items'
 import Notifications from './pages/Notifications'
 import Transactions from './pages/Transactions'
 
-// A dedicated /login page still makes sense for verticals with real
-// compliance/security needs of their own (an RPM deployment, for
-// instance) — that comes back as a module later. For the general
-// storefront base build, sign-in is a corner widget on every page
-// (see components/AuthModal.jsx + Layout.jsx) rather than a gate you
-// have to pass before browsing anything.
+// A dedicated /login page still makes sense for a business type with
+// real compliance/security needs of its own — but that's out of scope
+// for this base build entirely. RPM specifically is NOT planned to
+// evolve from this template; an RPM deployment is built from the
+// existing, purpose-built RPM platform instead. This base build's
+// intended evolution path is POS/retail, service-scheduling, and
+// catering only. For the general storefront base build, sign-in is a
+// corner widget on every page (see components/AuthModal.jsx +
+// Layout.jsx) rather than a gate you have to pass before browsing
+// anything.
 export default function App() {
   return (
     <ClientConfigProvider>
