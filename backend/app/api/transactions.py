@@ -28,6 +28,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
+from app.core.email import get_email_provider
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item
@@ -166,6 +167,7 @@ async def create_transaction(
     relies on guest_label instead. Requires at least one line item;
     subtotal/total are computed server-side from the lines, never
     trusted from the client."""
+    account = None
     if tx_in.account_id is not None:
         account = await session.get(Account, tx_in.account_id)
         if not account:
@@ -229,6 +231,17 @@ async def create_transaction(
     await session.refresh(transaction)
     for line in lines:
         await session.refresh(line)
+
+    # Order confirmation — only when there's a real account to email;
+    # a guest/walk-in sale (guest_label, no account_id) has no address
+    # to send to.
+    if account is not None:
+        provider = get_email_provider()
+        await provider.send(
+            to=account.email,
+            subject="Order confirmation",
+            body=f"Thanks for your order — total ${transaction.total:.2f}, transaction #{transaction.id}.",
+        )
 
     return TransactionWithLines(**transaction.model_dump(), lines=lines)
 

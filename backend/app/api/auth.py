@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
 from app.core.deps import get_current_account
+from app.core.email import get_email_provider
 from app.core.rate_limit import rate_limit
 from app.core.security import (
     create_access_token,
@@ -131,7 +132,16 @@ async def request_password_reset(
     session.add(account)
     await session.commit()
 
-    # DEV-ONLY: see note above — swap this for an email send in production.
+    provider = get_email_provider()
+    await provider.send(
+        to=account.email,
+        subject="Reset your password",
+        body=f"Your password reset code is: {raw_token}\nExpires in {RESET_TOKEN_EXPIRE_MINUTES} minutes.",
+    )
+
+    # DEV-ONLY: still returned directly so the flow is testable without a
+    # real provider wired in. Remove this field once a real EmailProvider
+    # is actually delivering the message above — see CUSTOMIZING.md.
     generic_response["dev_reset_token"] = raw_token
     return generic_response
 

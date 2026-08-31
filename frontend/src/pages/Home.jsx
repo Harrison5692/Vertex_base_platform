@@ -1,81 +1,55 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { tierLabel, useClientConfig } from '../lib/clientConfig'
+import { useClientConfig } from '../lib/clientConfig'
+
+function StatCard({ label, value, to }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-brand-300 hover:shadow"
+    >
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
+    </Link>
+  )
+}
 
 export default function Home() {
   const { user } = useAuth()
   const config = useClientConfig()
-  const [accounts, setAccounts] = useState([])
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [itemCount, setItemCount] = useState(null)
+  const [unreadCount, setUnreadCount] = useState(null)
+  const isStaff = user && user.tier >= 2
 
   useEffect(() => {
-    const requests = [api.get('/items/')]
-    // /accounts/ is staff+ only (tier 2+) — skip it for tier-1 accounts
-    // rather than let it 403.
-    if (user && user.tier >= 2) {
-      requests.unshift(api.get('/accounts/'))
+    api.get('/items/').then((items) => setItemCount(items.length)).catch(() => setItemCount(0))
+    if (user) {
+      api
+        .get('/notifications/')
+        .then((notifs) => setUnreadCount(notifs.filter((n) => !n.read_at).length))
+        .catch(() => setUnreadCount(0))
     }
-
-    Promise.all(requests)
-      .then((results) => {
-        if (user && user.tier >= 2) {
-          setAccounts(results[0])
-          setItems(results[1])
-        } else {
-          setItems(results[0])
-        }
-      })
-      .catch(() => setError('Could not load data.'))
-      .finally(() => setLoading(false))
   }, [user])
 
   return (
     <Layout>
-      <h1>Home</h1>
-      <p style={{ color: '#555' }}>
-        Starter landing page — replace with the real dashboard per client.
-      </p>
+      <h1 className="text-2xl font-semibold text-gray-900">
+        Welcome{user?.name ? `, ${user.name}` : ''}
+      </h1>
+      <p className="mt-1 text-gray-500">{config.app_name}</p>
 
-      {loading && <p>Loading…</p>}
-      {error && <p style={{ color: '#c0392b' }}>{error}</p>}
-
-      {!loading && !error && (
-        <>
-          {user && user.tier >= 2 && (
-            <section style={{ marginTop: 24 }}>
-              <h2 style={{ fontSize: 16 }}>Accounts ({accounts.length})</h2>
-              {accounts.length === 0 ? (
-                <p style={{ color: '#888' }}>No accounts yet.</p>
-              ) : (
-                <ul>
-                  {accounts.map((a) => (
-                    <li key={a.id}>
-                      {a.name || a.email} — {tierLabel(a.tier, config)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          )}
-
-          <section style={{ marginTop: 24 }}>
-            <h2 style={{ fontSize: 16 }}>Items ({items.length})</h2>
-            {items.length === 0 ? (
-              <p style={{ color: '#888' }}>No items yet.</p>
-            ) : (
-              <ul>
-                {items.map((i) => (
-                  <li key={i.id}>{i.name}</li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
-      )}
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <StatCard label="Items" value={itemCount ?? '—'} to="/items" />
+        <StatCard label="New sale" value="Checkout →" to="/checkout" />
+        {user && (
+          <StatCard label="Unread notifications" value={unreadCount ?? '—'} to="/notifications" />
+        )}
+        {isStaff && <StatCard label="Transaction history" value="View all →" to="/transactions" />}
+        {isStaff && <StatCard label="Accounts" value="Manage →" to="/accounts" />}
+      </div>
     </Layout>
   )
 }

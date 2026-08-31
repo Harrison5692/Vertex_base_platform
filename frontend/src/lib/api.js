@@ -11,6 +11,15 @@ export function setAuthToken(token) {
   authToken = token
 }
 
+/** Exposed for the rare case a component needs a raw fetch() itself
+ * (e.g. downloading a non-JSON file like a CSV export) rather than
+ * going through the request() helper below. */
+export function getAuthToken() {
+  return authToken
+}
+
+export { BASE_URL }
+
 async function request(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers }
   if (authToken) {

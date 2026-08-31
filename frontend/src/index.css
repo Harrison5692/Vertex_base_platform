@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-color: #1a9c8f; /* overridden at runtime by clientConfig.jsx */
+}
+
+body {
+  @apply bg-gray-50 text-gray-900 antialiased;
+}

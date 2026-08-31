@@ -1,23 +1,51 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import { AuthProvider } from './lib/auth'
 import { ClientConfigProvider } from './lib/clientConfig'
+import Accounts from './pages/Accounts'
+import Checkout from './pages/Checkout'
 import Home from './pages/Home'
-import Login from './pages/Login'
-import Register from './pages/Register'
+import Items from './pages/Items'
+import Notifications from './pages/Notifications'
+import Transactions from './pages/Transactions'
 
+// A dedicated /login page still makes sense for verticals with real
+// compliance/security needs of their own (an RPM deployment, for
+// instance) — that comes back as a module later. For the general
+// storefront base build, sign-in is a corner widget on every page
+// (see components/AuthModal.jsx + Layout.jsx) rather than a gate you
+// have to pass before browsing anything.
 export default function App() {
   return (
     <ClientConfigProvider>
       <AuthProvider>
         <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<Navigate to="/" replace />} />
+          <Route path="/register" element={<Navigate to="/" replace />} />
+          <Route path="/" element={<Home />} />
+          <Route path="/items" element={<Items />} />
+          <Route path="/checkout" element={<Checkout />} />
           <Route
-            path="/"
+            path="/transactions"
             element={
               <ProtectedRoute>
-                <Home />
+                <Transactions />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <Notifications />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/accounts"
+            element={
+              <ProtectedRoute minTier={2}>
+                <Accounts />
               </ProtectedRoute>
             }
           />

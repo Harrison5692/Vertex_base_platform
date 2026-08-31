@@ -13,15 +13,19 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
-from app.core.deps import get_current_account
+from app.core.deps import get_current_account, require_min_tier
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item, ItemCreate, ItemRead, ItemUpdate
 from app.models.notification import Notification
 
-router = APIRouter(
-    prefix="/items", tags=["items"], dependencies=[Depends(get_current_account)]
-)
+router = APIRouter(prefix="/items", tags=["items"])
+# No router-level auth dependency — GET routes are intentionally public
+# (browsing a catalog shouldn't require an account, same as any real
+# storefront). POST/PATCH/DELETE below each carry their own
+# require_min_tier(2), which pulls in get_current_account internally —
+# so mutations are still fully auth-gated, just not via a blanket
+# router-level requirement that would also lock out browsing.
 
 
 async def _maybe_notify_low_stock(
@@ -61,7 +65,7 @@ async def list_items(session: AsyncSession = Depends(get_session)):
     return result.all()
 
 
-@router.post("/", response_model=ItemRead, status_code=201)
+@router.post("/", response_model=ItemRead, status_code=201, dependencies=[Depends(require_min_tier(2))])
 async def create_item(
     item_in: ItemCreate,
     session: AsyncSession = Depends(get_session),
@@ -95,7 +99,7 @@ async def get_item(item_id: int, session: AsyncSession = Depends(get_session)):
     return item
 
 
-@router.patch("/{item_id}", response_model=ItemRead)
+@router.patch("/{item_id}", response_model=ItemRead, dependencies=[Depends(require_min_tier(2))])
 async def update_item(
     item_id: int,
     item_in: ItemUpdate,
@@ -130,7 +134,7 @@ async def update_item(
     return item
 
 
-@router.delete("/{item_id}", status_code=204)
+@router.delete("/{item_id}", status_code=204, dependencies=[Depends(require_min_tier(2))])
 async def delete_item(
     item_id: int,
     session: AsyncSession = Depends(get_session),

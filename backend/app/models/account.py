@@ -29,6 +29,12 @@ class AccountBase(SQLModel):
     phone: str | None = Field(default=None, max_length=30)
     tier: int = Field(default=1, index=True)
     is_active: bool = Field(default=True, index=True)
+    # Opt-in flag only — this base build has no actual campaign/mailing
+    # system (list management, unsubscribe compliance, sending). Adding
+    # real newsletter functionality is a deliberately separate, larger
+    # piece of work; this field just means a deployment doesn't have to
+    # retrofit the schema when it eventually builds that.
+    email_opt_in: bool = Field(default=False)
 
 
 class Account(AccountBase, table=True):
@@ -58,3 +64,4 @@ class AccountUpdate(SQLModel):
     phone: str | None = None
     tier: int | None = None
     is_active: bool | None = None
+    email_opt_in: bool | None = None
