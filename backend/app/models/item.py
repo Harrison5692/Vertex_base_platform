@@ -26,6 +26,12 @@ class ItemBase(SQLModel):
     category: str | None = Field(default=None, index=True, max_length=100)
     is_active: bool = Field(default=True, index=True)
     account_id: int | None = Field(default=None, foreign_key="account.id", index=True)
+    # A pointer to an externally-hosted image (S3, Cloudinary, etc.) —
+    # same non-storage-owning pattern as Attachment.file_url. Applies
+    # across every planned vertical (product photo, service photo,
+    # menu item photo), not just retail, so it lives in the shared base
+    # rather than being added per-vertical later.
+    image_url: str | None = Field(default=None, max_length=1000)
 
     # POS / retail
     price: float | None = Field(default=None, ge=0)
@@ -81,6 +87,7 @@ class ItemUpdate(SQLModel):
     description: str | None = None
     category: str | None = None
     is_active: bool | None = None
+    image_url: str | None = None
     price: float | None = Field(default=None, ge=0)
     sku: str | None = None
     stock_quantity: int | None = Field(default=None, ge=0)

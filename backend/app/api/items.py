@@ -60,8 +60,22 @@ async def _maybe_notify_low_stock(
 
 
 @router.get("/", response_model=list[ItemRead])
-async def list_items(session: AsyncSession = Depends(get_session)):
-    result = await session.exec(select(Item))
+async def list_items(
+    session: AsyncSession = Depends(get_session),
+    q: str | None = None,
+    category: str | None = None,
+):
+    """q does a case-insensitive substring match on name. Both filters
+    are optional and combine with AND when both are given. Deliberately
+    simple (no full-text search engine) — this is meant to work for a
+    catalog of dozens-to-low-hundreds of items, not power a large-scale
+    storefront search; that would be a real addition, not a base one."""
+    query = select(Item)
+    if q:
+        query = query.where(Item.name.ilike(f"%{q}%"))
+    if category:
+        query = query.where(Item.category == category)
+    result = await session.exec(query)
     return result.all()
 
 

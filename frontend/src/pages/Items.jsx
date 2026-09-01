@@ -7,6 +7,7 @@ const emptyForm = {
   name: '',
   description: '',
   category: '',
+  image_url: '',
   price: '',
   sku: '',
   stock_quantity: '',
@@ -22,6 +23,7 @@ function toPayload(form) {
     name: form.name,
     description: form.description || null,
     category: form.category || null,
+    image_url: form.image_url || null,
     price: num(form.price),
     sku: form.sku || null,
     stock_quantity: num(form.stock_quantity),
@@ -36,21 +38,25 @@ export default function Items() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
 
-  function load() {
+  function load(query) {
     setLoading(true)
+    const params = new URLSearchParams()
+    if (query) params.set('q', query)
+    const qs = params.toString()
     api
-      .get('/items/')
+      .get(`/items/${qs ? `?${qs}` : ''}`)
       .then(setItems)
       .catch(() => setError('Could not load items.'))
       .finally(() => setLoading(false))
   }
 
-  useEffect(load, [])
+  useEffect(() => load(search), [search])
 
   function startCreate() {
     setForm(emptyForm)
@@ -63,6 +69,7 @@ export default function Items() {
       name: item.name ?? '',
       description: item.description ?? '',
       category: item.category ?? '',
+      image_url: item.image_url ?? '',
       price: item.price ?? '',
       sku: item.sku ?? '',
       stock_quantity: item.stock_quantity ?? '',
@@ -85,7 +92,7 @@ export default function Items() {
         await api.post('/items/', payload)
       }
       setShowForm(false)
-      load()
+      load(search)
     } catch {
       setError('Could not save item — check the values and try again.')
     } finally {
@@ -97,7 +104,7 @@ export default function Items() {
     if (!confirm('Delete this item?')) return
     try {
       await api.delete(`/items/${id}`)
-      load()
+      load(search)
     } catch {
       setError('Could not delete item.')
     }
@@ -117,6 +124,13 @@ export default function Items() {
         )}
       </div>
 
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search items…"
+        className="mt-4 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+      />
+
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       {loading && <p className="mt-4 text-gray-500">Loading…</p>}
 
@@ -125,6 +139,7 @@ export default function Items() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs font-medium uppercase text-gray-500">
               <tr>
+                <th className="px-4 py-3"></th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Price</th>
@@ -140,6 +155,17 @@ export default function Items() {
                   item.stock_quantity <= item.low_stock_threshold
                 return (
                   <tr key={item.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name}
+                          className="h-10 w-10 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 rounded-lg bg-gray-100" />
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-900">{item.name}</td>
                     <td className="px-4 py-3 text-gray-500">{item.category || '—'}</td>
                     <td className="px-4 py-3 text-gray-500">
@@ -176,7 +202,7 @@ export default function Items() {
               })}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={isStaff ? 5 : 4} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={isStaff ? 6 : 5} className="px-4 py-8 text-center text-gray-400">
                     No items yet.
                   </td>
                 </tr>
@@ -211,6 +237,15 @@ export default function Items() {
                 <input
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
+                />
+              </label>
+              <label className="col-span-2 text-sm">
+                <span className="mb-1 block text-gray-600">Image URL</span>
+                <input
+                  value={form.image_url}
+                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                  placeholder="https://…"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
                 />
               </label>

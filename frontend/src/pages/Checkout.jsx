@@ -35,10 +35,17 @@ export default function Checkout() {
   const [error, setError] = useState(null)
   const [receipt, setReceipt] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
-    api.get('/items/').then(setItems).catch(() => setError('Could not load items.'))
-  }, [])
+    const params = new URLSearchParams()
+    if (search) params.set('q', search)
+    const qs = params.toString()
+    api
+      .get(`/items/${qs ? `?${qs}` : ''}`)
+      .then(setItems)
+      .catch(() => setError('Could not load items.'))
+  }, [search])
 
   useEffect(() => {
     localStorage.setItem(CART_KEY, JSON.stringify(cart))
@@ -140,18 +147,31 @@ export default function Checkout() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search items…"
+            className="mb-3 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {items.map((item) => (
               <button
                 key={item.id}
                 onClick={() => addToCart(item)}
                 disabled={item.price == null}
-                className="rounded-xl border border-gray-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-300 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
+                className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-sm transition hover:border-brand-300 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <p className="font-medium text-gray-900">{item.name}</p>
-                <p className="mt-1 text-sm text-gray-500">
-                  {item.price != null ? `$${item.price.toFixed(2)}` : 'No price set'}
-                </p>
+                {item.image_url ? (
+                  <img src={item.image_url} alt={item.name} className="h-28 w-full object-cover" />
+                ) : (
+                  <div className="h-28 w-full bg-gray-100" />
+                )}
+                <div className="p-3">
+                  <p className="font-medium text-gray-900">{item.name}</p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    {item.price != null ? `$${item.price.toFixed(2)}` : 'No price set'}
+                  </p>
+                </div>
               </button>
             ))}
             {items.length === 0 && (
