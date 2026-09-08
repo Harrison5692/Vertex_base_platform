@@ -17,15 +17,41 @@ function StatCard({ label, value, to }) {
   )
 }
 
+function ProductCard({ item }) {
+  return (
+    <Link
+      to={`/items/${item.id}`}
+      className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-sm transition hover:border-brand-300 hover:shadow"
+    >
+      {item.image_url ? (
+        <img src={item.image_url} alt={item.name} className="h-32 w-full object-cover" />
+      ) : (
+        <div className="h-32 w-full bg-gray-100" />
+      )}
+      <div className="p-3">
+        <p className="truncate font-medium text-gray-900">{item.name}</p>
+        <p className="mt-1 text-sm text-gray-500">
+          {item.price != null ? `$${item.price.toFixed(2)}` : 'Price on request'}
+        </p>
+      </div>
+    </Link>
+  )
+}
+
 export default function Home() {
   const { user } = useAuth()
   const config = useClientConfig()
-  const [itemCount, setItemCount] = useState(null)
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(null)
   const isStaff = user && user.tier >= 2
 
   useEffect(() => {
-    api.get('/items/').then((items) => setItemCount(items.length)).catch(() => setItemCount(0))
+    api
+      .get('/items/')
+      .then(setItems)
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false))
     if (user) {
       api
         .get('/notifications/')
@@ -36,20 +62,34 @@ export default function Home() {
 
   return (
     <Layout>
-      <h1 className="text-2xl font-semibold text-gray-900">
+      <h1 className="text-2xl font-semibold text-gray-900">{config.app_name}</h1>
+      <p className="mt-1 text-gray-500">
         Welcome{user?.name ? `, ${user.name}` : ''}
-      </h1>
-      <p className="mt-1 text-gray-500">{config.app_name}</p>
+      </p>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
-        <StatCard label="Items" value={itemCount ?? '—'} to="/items" />
-        <StatCard label="New sale" value="Checkout →" to="/checkout" />
-        {user && (
+      {isStaff && (
+        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatCard label="Items" value={items.length} to="/items" />
+          <StatCard label="New sale" value="Checkout →" to="/checkout" />
           <StatCard label="Unread notifications" value={unreadCount ?? '—'} to="/notifications" />
-        )}
-        {isStaff && <StatCard label="Transaction history" value="View all →" to="/transactions" />}
-        {isStaff && <StatCard label="Accounts" value="Manage →" to="/accounts" />}
-      </div>
+          <StatCard label="Accounts" value="Manage →" to="/accounts" />
+        </div>
+      )}
+
+      <h2 className="mt-8 text-lg font-semibold text-gray-900">Shop</h2>
+
+      {loading && <p className="mt-4 text-gray-500">Loading…</p>}
+
+      {!loading && (
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+          {items.map((item) => (
+            <ProductCard key={item.id} item={item} />
+          ))}
+          {items.length === 0 && (
+            <p className="col-span-full text-gray-400">No items available yet.</p>
+          )}
+        </div>
+      )}
     </Layout>
   )
 }

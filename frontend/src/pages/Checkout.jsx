@@ -31,6 +31,19 @@ export default function Checkout() {
   // configured rate with no way to change it client-side.
   const [taxOverride, setTaxOverride] = useState(null)
   const [guestLabel, setGuestLabel] = useState('')
+  // Shipping is a retail-vertical concept: a staff-run walk-in sale
+  // has no destination, so this only applies to a non-staff (online)
+  // checkout and is required there before submitting.
+  const [shipping, setShipping] = useState({
+    shipping_name: '',
+    shipping_line1: '',
+    shipping_line2: '',
+    shipping_city: '',
+    shipping_state: '',
+    shipping_postal_code: '',
+    shipping_country: '',
+    shipping_phone: '',
+  })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [receipt, setReceipt] = useState(null)
@@ -80,10 +93,26 @@ export default function Checkout() {
   const tax = taxOverride ?? configuredTax
   const total = subtotal + tax
 
+  // Staff run walk-in POS sales (no destination); anyone else is
+  // placing an online order and needs a real shipping address.
+  const needsShipping = !isStaff
+  const shippingComplete =
+    !needsShipping ||
+    (shipping.shipping_name &&
+      shipping.shipping_line1 &&
+      shipping.shipping_city &&
+      shipping.shipping_state &&
+      shipping.shipping_postal_code &&
+      shipping.shipping_country)
+
   async function handleCheckout() {
     if (cart.length === 0) return
     if (!user) {
       setShowAuth(true)
+      return
+    }
+    if (!shippingComplete) {
+      setError('Enter a complete shipping address before checking out.')
       return
     }
     setSubmitting(true)
@@ -99,11 +128,24 @@ export default function Checkout() {
           quantity: l.quantity,
           unit_price: l.unit_price,
         })),
+        ...(needsShipping
+          ? shipping
+          : {}),
       })
       setReceipt(result)
       setCart([]) // also clears localStorage via the effect above
       setGuestLabel('')
       setTaxOverride(null)
+      setShipping({
+        shipping_name: '',
+        shipping_line1: '',
+        shipping_line2: '',
+        shipping_city: '',
+        shipping_state: '',
+        shipping_postal_code: '',
+        shipping_country: '',
+        shipping_phone: '',
+      })
     } catch {
       setError('Checkout failed — one of the items may no longer exist.')
     } finally {
@@ -223,6 +265,64 @@ export default function Checkout() {
             </label>
           )}
 
+          {needsShipping && (
+            <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
+              <p className="text-sm font-medium text-gray-700">Shipping address</p>
+              <input
+                value={shipping.shipping_name}
+                onChange={(e) => setShipping({ ...shipping, shipping_name: e.target.value })}
+                placeholder="Full name"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+              />
+              <input
+                value={shipping.shipping_line1}
+                onChange={(e) => setShipping({ ...shipping, shipping_line1: e.target.value })}
+                placeholder="Address line 1"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+              />
+              <input
+                value={shipping.shipping_line2}
+                onChange={(e) => setShipping({ ...shipping, shipping_line2: e.target.value })}
+                placeholder="Address line 2 (optional)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={shipping.shipping_city}
+                  onChange={(e) => setShipping({ ...shipping, shipping_city: e.target.value })}
+                  placeholder="City"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+                <input
+                  value={shipping.shipping_state}
+                  onChange={(e) => setShipping({ ...shipping, shipping_state: e.target.value })}
+                  placeholder="State"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+                <input
+                  value={shipping.shipping_postal_code}
+                  onChange={(e) =>
+                    setShipping({ ...shipping, shipping_postal_code: e.target.value })
+                  }
+                  placeholder="Postal code"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+                <input
+                  value={shipping.shipping_country}
+                  onChange={(e) => setShipping({ ...shipping, shipping_country: e.target.value })}
+                  placeholder="Country"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+              <input
+                value={shipping.shipping_phone}
+                onChange={(e) => setShipping({ ...shipping, shipping_phone: e.target.value })}
+                placeholder="Phone (optional)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+              />
+            </div>
+          )}
+
           <label className="mt-3 block text-sm">
             <span className="mb-1 block text-gray-600">Payment method</span>
             <select
@@ -273,10 +373,16 @@ export default function Checkout() {
 
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || submitting}
+            disabled={cart.length === 0 || submitting || (user && !shippingComplete)}
             className="mt-4 w-full rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           >
-            {submitting ? 'Processing…' : user ? 'Complete sale' : 'Sign in to complete sale'}
+            {submitting
+              ? 'Processing…'
+              : !user
+                ? 'Sign in to complete sale'
+                : needsShipping
+                  ? 'Place order'
+                  : 'Complete sale'}
           </button>
         </div>
       </div>

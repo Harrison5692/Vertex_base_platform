@@ -7,6 +7,7 @@ import Checkout from './pages/Checkout'
 import Home from './pages/Home'
 import Items from './pages/Items'
 import Notifications from './pages/Notifications'
+import ProductDetail from './pages/ProductDetail'
 import Transactions from './pages/Transactions'
 
 // A dedicated /login page still makes sense for a business type with
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/register" element={<Navigate to="/" replace />} />
           <Route path="/" element={<Home />} />
           <Route path="/items" element={<Items />} />
+          <Route path="/items/:id" element={<ProductDetail />} />
           <Route path="/checkout" element={<Checkout />} />
           <Route
             path="/transactions"

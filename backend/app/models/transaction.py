@@ -34,6 +34,13 @@ deposit_amount/balance_due are optional, added for staged-payment
 cases (a deposit now, balance later) — a simple one-shot sale just
 leaves both null.
 
+shipping_* fields are a RETAIL-VERTICAL addition, not a base-build
+concept — an in-person POS sale or a service appointment has no
+shipping destination, so every field here is nullable and a non-retail
+deployment simply never populates them. All optional at the model
+level; the retail frontend enforces them as required before an
+online (non-walk-in) order can be submitted.
+
 Foreign keys are explicitly indexed here: Postgres does NOT auto-index
 FK columns, only primary keys and unique constraints, so without this
 every join/filter on account_id or created_at would be a full table
@@ -82,6 +89,17 @@ class TransactionBase(SQLModel):
     deposit_amount: float | None = Field(default=None)
     balance_due: float | None = Field(default=None)
 
+    # Retail-vertical: shipping destination for an online order.
+    # Null for a walk-in/POS sale or any non-retail deployment.
+    shipping_name: str | None = Field(default=None, max_length=200)
+    shipping_line1: str | None = Field(default=None, max_length=255)
+    shipping_line2: str | None = Field(default=None, max_length=255)
+    shipping_city: str | None = Field(default=None, max_length=100)
+    shipping_state: str | None = Field(default=None, max_length=100)
+    shipping_postal_code: str | None = Field(default=None, max_length=20)
+    shipping_country: str | None = Field(default=None, max_length=100)
+    shipping_phone: str | None = Field(default=None, max_length=30)
+
 
 class Transaction(TransactionBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
@@ -105,6 +123,17 @@ class TransactionCreate(SQLModel):
     notes: str | None = None
     deposit_amount: float | None = None
     balance_due: float | None = None
+
+    # Retail-vertical: only sent by the online storefront checkout,
+    # left null by a staff-run walk-in POS sale.
+    shipping_name: str | None = None
+    shipping_line1: str | None = None
+    shipping_line2: str | None = None
+    shipping_city: str | None = None
+    shipping_state: str | None = None
+    shipping_postal_code: str | None = None
+    shipping_country: str | None = None
+    shipping_phone: str | None = None
 
 
 class TransactionRead(TransactionBase):
