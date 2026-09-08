@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import accounts, attachments, auth, config, items, notifications, transactions
+from app.api import accounts, attachments, auth, config, items, newsletter, notifications, transactions
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name)
@@ -21,6 +21,7 @@ app.include_router(items.router)
 app.include_router(transactions.router)
 app.include_router(notifications.router)
 app.include_router(attachments.router)
+app.include_router(newsletter.router)
 
 
 @app.get("/health")

@@ -9,7 +9,7 @@ const navLinkClass = ({ isActive }) =>
     isActive ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-100'
   }`
 
-export default function Layout({ children }) {
+export default function Layout({ children, banner }) {
   const { user, logout } = useAuth()
   const config = useClientConfig()
   const [showAuth, setShowAuth] = useState(false)
@@ -68,6 +68,9 @@ export default function Layout({ children }) {
           )}
         </div>
       </header>
+
+      {banner}
+
       <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}

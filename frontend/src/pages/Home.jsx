@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import CategorySidebar from '../components/CategorySidebar'
 import Layout from '../components/Layout'
 import StorefrontBanner from '../components/StorefrontBanner'
 import { api } from '../lib/api'
@@ -40,17 +41,19 @@ function ProductCard({ item }) {
 
 export default function Home() {
   const { user } = useAuth()
+  // allItems (unfiltered) drives the category list; items is the
+  // filtered set actually shown, re-fetched from the server whenever
+  // the category changes so it reuses the existing /items?category=
+  // filter instead of re-implementing filtering client-side.
+  const [allItems, setAllItems] = useState([])
   const [items, setItems] = useState([])
+  const [category, setCategory] = useState(null)
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(null)
   const isStaff = user && user.tier >= 2
 
   useEffect(() => {
-    api
-      .get('/items/')
-      .then(setItems)
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false))
+    api.get('/items/').then(setAllItems).catch(() => setAllItems([]))
     if (user) {
       api
         .get('/notifications/')
@@ -59,37 +62,52 @@ export default function Home() {
     }
   }, [user])
 
+  useEffect(() => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (category) params.set('category', category)
+    const qs = params.toString()
+    api
+      .get(`/items/${qs ? `?${qs}` : ''}`)
+      .then(setItems)
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false))
+  }, [category])
+
+  const categories = useMemo(
+    () => [...new Set(allItems.map((i) => i.category).filter(Boolean))].sort(),
+    [allItems]
+  )
+
   return (
-    <Layout>
-      <StorefrontBanner />
-
-      {user && (
-        <p className="-mt-6 mb-6 text-sm text-gray-500">Welcome back, {user.name || user.email}</p>
-      )}
-
+    <Layout banner={<StorefrontBanner />}>
       {isStaff && (
-        <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <StatCard label="Items" value={items.length} to="/items" />
+        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <StatCard label="Items" value={allItems.length} to="/items" />
           <StatCard label="New sale" value="Checkout →" to="/checkout" />
           <StatCard label="Unread notifications" value={unreadCount ?? '—'} to="/notifications" />
           <StatCard label="Accounts" value="Manage →" to="/accounts" />
         </div>
       )}
 
-      <h2 className="mt-8 text-lg font-semibold text-gray-900">Shop</h2>
+      <div className="flex flex-col gap-8 sm:flex-row">
+        <CategorySidebar categories={categories} active={category} onSelect={setCategory} />
 
-      {loading && <p className="mt-4 text-gray-500">Loading…</p>}
+        <div className="flex-1">
+          {loading && <p className="text-gray-500">Loading…</p>}
 
-      {!loading && (
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {items.map((item) => (
-            <ProductCard key={item.id} item={item} />
-          ))}
-          {items.length === 0 && (
-            <p className="col-span-full text-gray-400">No items available yet.</p>
+          {!loading && (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              {items.map((item) => (
+                <ProductCard key={item.id} item={item} />
+              ))}
+              {items.length === 0 && (
+                <p className="col-span-full text-gray-400">No items in this category yet.</p>
+              )}
+            </div>
           )}
         </div>
-      )}
+      </div>
     </Layout>
   )
 }

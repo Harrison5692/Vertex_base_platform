@@ -1,6 +1,6 @@
 {
   "app_name": "Vertex Base",
-  "tagline": "Placeholder tagline — swap this line for real store copy.",
+  "tagline": "Placeholder intro copy — a sentence or two about the shop goes here. Swap it out in client.config.json.",
   "logo_url": null,
   "primary_color": "#1a9c8f",
   "tax_rate": 0.0825,

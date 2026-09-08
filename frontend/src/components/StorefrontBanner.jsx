@@ -1,3 +1,5 @@
+import NewsletterSignup from './NewsletterSignup'
+import { useAuth } from '../lib/auth'
 import { useClientConfig } from '../lib/clientConfig'
 
 /** Logo mark: renders config.logo_url once a real client has one;
@@ -15,19 +17,32 @@ function LogoMark({ appName, logoUrl }) {
   )
 }
 
+/** Full-width banner between the nav header and the page content —
+ * background spans the viewport, inner content lines up with the
+ * max-w-5xl column everything else on the page uses. */
 export default function StorefrontBanner() {
+  const { user } = useAuth()
   const config = useClientConfig()
 
   return (
-    <div className="mb-8 flex items-center gap-4 border-b border-gray-200 pb-6">
-      <LogoMark appName={config.app_name} logoUrl={config.logo_url} />
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">
-          {config.app_name}
-        </h1>
-        {config.tagline && (
-          <p className="mt-1 max-w-md text-sm text-gray-500">{config.tagline}</p>
-        )}
+    <div className="w-full border-b border-gray-200 bg-white">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-4">
+          <LogoMark appName={config.app_name} logoUrl={config.logo_url} />
+          <div>
+            <p className="text-sm font-medium text-brand-600">
+              Welcome{user?.name ? `, ${user.name}` : ''}
+            </p>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-gray-900">
+              {config.app_name}
+            </h1>
+            {config.tagline && (
+              <p className="mt-2 max-w-md text-sm text-gray-600">{config.tagline}</p>
+            )}
+          </div>
+        </div>
+
+        <NewsletterSignup />
       </div>
     </div>
   )
