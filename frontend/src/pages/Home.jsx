@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/Layout'
+import StorefrontBanner from '../components/StorefrontBanner'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { useClientConfig } from '../lib/clientConfig'
 
 function StatCard({ label, value, to }) {
   return (
@@ -40,7 +40,6 @@ function ProductCard({ item }) {
 
 export default function Home() {
   const { user } = useAuth()
-  const config = useClientConfig()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(null)
@@ -62,10 +61,11 @@ export default function Home() {
 
   return (
     <Layout>
-      <h1 className="text-2xl font-semibold text-gray-900">{config.app_name}</h1>
-      <p className="mt-1 text-gray-500">
-        Welcome{user?.name ? `, ${user.name}` : ''}
-      </p>
+      <StorefrontBanner />
+
+      {user && (
+        <p className="-mt-6 mb-6 text-sm text-gray-500">Welcome back, {user.name || user.email}</p>
+      )}
 
       {isStaff && (
         <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
