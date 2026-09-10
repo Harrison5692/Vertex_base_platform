@@ -87,6 +87,7 @@ export default function Home() {
           <StatCard label="New sale" value="Checkout →" to="/checkout" />
           <StatCard label="Unread notifications" value={unreadCount ?? '—'} to="/notifications" />
           <StatCard label="Accounts" value="Manage →" to="/accounts" />
+          <StatCard label="Order queue" value="Fulfill →" to="/orders/queue" />
         </div>
       )}
 

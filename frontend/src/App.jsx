@@ -7,6 +7,7 @@ import Checkout from './pages/Checkout'
 import Home from './pages/Home'
 import Items from './pages/Items'
 import Notifications from './pages/Notifications'
+import OrderQueue from './pages/OrderQueue'
 import ProductDetail from './pages/ProductDetail'
 import Transactions from './pages/Transactions'
 
@@ -52,6 +53,14 @@ export default function App() {
             element={
               <ProtectedRoute minTier={2}>
                 <Accounts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/orders/queue"
+            element={
+              <ProtectedRoute minTier={2}>
+                <OrderQueue />
               </ProtectedRoute>
             }
           />

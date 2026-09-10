@@ -62,6 +62,26 @@ class TransactionType(str, Enum):
     voided = "voided"
 
 
+class FulfillmentStatus(str, Enum):
+    """Retail-vertical addition: where a completed online order stands
+    in getting physically shipped. Distinct from TransactionType,
+    which is about the financial event (a sale, a refund, a void) —
+    a transaction can be financially `completed` while its physical
+    order is still `pending`. Only meaningful for an online order (one
+    with a shipping address); a staff walk-in POS sale has nothing to
+    fulfill, so it's left null rather than forced through this
+    pipeline. pending/processing/shipped/delivered are the normal
+    forward path; cancelled is a terminal side-exit (e.g. staff
+    catches a problem before it ships) — it does not reverse the sale
+    itself, that's still what a refund is for."""
+
+    pending = "pending"
+    processing = "processing"
+    shipped = "shipped"
+    delivered = "delivered"
+    cancelled = "cancelled"
+
+
 class PaymentMethod(str, Enum):
     cash = "cash"
     card = "card"
@@ -99,6 +119,11 @@ class TransactionBase(SQLModel):
     shipping_postal_code: str | None = Field(default=None, max_length=20)
     shipping_country: str | None = Field(default=None, max_length=100)
     shipping_phone: str | None = Field(default=None, max_length=30)
+
+    # Server-assigned only (see TransactionCreate below for why it's
+    # not client-settable at creation) — set once at checkout, then
+    # only ever changed via PATCH /transactions/{id}/fulfillment.
+    fulfillment_status: FulfillmentStatus | None = Field(default=None, index=True)
 
 
 class Transaction(TransactionBase, table=True):

@@ -45,6 +45,11 @@ export default function Layout({ children, banner }) {
                 Accounts
               </NavLink>
             )}
+            {isStaff && (
+              <NavLink to="/orders/queue" className={navLinkClass}>
+                Order queue
+              </NavLink>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-3">

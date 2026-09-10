@@ -33,7 +33,13 @@ from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item
-from app.models.transaction import Transaction, TransactionCreate, TransactionRead, TransactionType
+from app.models.transaction import (
+    FulfillmentStatus,
+    Transaction,
+    TransactionCreate,
+    TransactionRead,
+    TransactionType,
+)
 from app.models.transaction_line import (
     TransactionLine,
     TransactionLineCreate,
@@ -138,6 +144,26 @@ async def get_account_history(
     return result.all()
 
 
+@router.get(
+    "/queue", response_model=list[TransactionRead], dependencies=[Depends(require_min_tier(2))]
+)
+async def get_fulfillment_queue(session: AsyncSession = Depends(get_session)):
+    """Staff and above only. Active online orders awaiting fulfillment
+    (pending or processing) — oldest first, so staff naturally work
+    through it FIFO. Placed before /{transaction_id} for the same
+    static-vs-dynamic-route reason as /export above."""
+    result = await session.exec(
+        select(Transaction)
+        .where(
+            Transaction.fulfillment_status.in_(
+                [FulfillmentStatus.pending, FulfillmentStatus.processing]
+            )
+        )
+        .order_by(Transaction.created_at.asc())
+    )
+    return result.all()
+
+
 @router.get("/{transaction_id}", response_model=TransactionWithLines)
 async def get_transaction(
     transaction_id: int,
@@ -221,6 +247,15 @@ async def create_transaction(
             "subtotal": subtotal,
             "tax_amount": tax_amount,
             "total": total,
+            # An online order (has a shipping address) enters the
+            # fulfillment pipeline at "pending"; a staff walk-in POS
+            # sale (no shipping address) has nothing to fulfill and
+            # stays null, same as it always has.
+            "fulfillment_status": (
+                FulfillmentStatus.pending
+                if tx_in.type == TransactionType.completed and tx_in.shipping_line1
+                else None
+            ),
         },
     )
     session.add(transaction)
@@ -346,3 +381,57 @@ async def refund_transaction(
     await session.refresh(refund)
 
     return TransactionWithLines(**refund.model_dump(), lines=[])
+
+
+class FulfillmentUpdateRequest(BaseModel):
+    status: FulfillmentStatus
+
+
+@router.patch(
+    "/{transaction_id}/fulfillment",
+    response_model=TransactionRead,
+    dependencies=[Depends(require_min_tier(2))],
+)
+async def update_fulfillment_status(
+    transaction_id: int,
+    body: FulfillmentUpdateRequest,
+    session: AsyncSession = Depends(get_session),
+    current: Account = Depends(get_current_account),
+):
+    """Staff and above only. Moves an order through
+    pending -> processing -> shipped -> delivered, or sideways to
+    cancelled. delivered/cancelled are terminal — once there, this
+    endpoint refuses further changes (the append-only-history
+    approach used elsewhere doesn't apply here since this is a status
+    field, not a financial event, but "no more changes once done"
+    is still the safer default than silently allowing it)."""
+    transaction = await session.get(Transaction, transaction_id)
+    if not transaction:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    if transaction.fulfillment_status is None:
+        raise HTTPException(
+            status_code=409,
+            detail="This transaction has no fulfillment pipeline — it isn't an online order",
+        )
+    if transaction.fulfillment_status in (FulfillmentStatus.delivered, FulfillmentStatus.cancelled):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Order is already {transaction.fulfillment_status.value} — that's final",
+        )
+
+    old_status = transaction.fulfillment_status
+    transaction.fulfillment_status = body.status
+    session.add(transaction)
+
+    await log_audit(
+        session,
+        table_name="transaction",
+        record_id=transaction.id,
+        action="update",
+        changed_by=current.id,
+        old_values={"fulfillment_status": old_status},
+        new_values={"fulfillment_status": body.status},
+    )
+    await session.commit()
+    await session.refresh(transaction)
+    return transaction
