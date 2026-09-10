@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { CardElement, Elements } from '@stripe/react-stripe-js'
+import { loadStripe } from '@stripe/stripe-js'
 import AuthModal from '../components/AuthModal'
 import Layout from '../components/Layout'
+import StripeCardField from '../components/StripeCardField'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { useClientConfig } from '../lib/clientConfig'
@@ -49,6 +52,31 @@ export default function Checkout() {
   const [receipt, setReceipt] = useState(null)
   const [showAuth, setShowAuth] = useState(false)
   const [search, setSearch] = useState('')
+
+  // Stripe is entirely optional per-deployment (see /payments/config)
+  // — stripePromise stays null, and the card field never renders,
+  // for a deployment that hasn't set STRIPE_SECRET_KEY. stripeHandle
+  // holds the live stripe/elements objects once StripeCardField
+  // (which lives inside <Elements>, unlike this component) reports
+  // them up, so handleCheckout can tokenize the card at submit time.
+  const [stripePromise, setStripePromise] = useState(null)
+  const [stripeEnabled, setStripeEnabled] = useState(false)
+  const stripeHandle = useRef({ stripe: null, elements: null })
+  const handleStripeReady = useCallback((stripe, elements) => {
+    stripeHandle.current = { stripe, elements }
+  }, [])
+
+  useEffect(() => {
+    api
+      .get('/payments/config')
+      .then((cfg) => {
+        if (cfg.stripe_enabled && cfg.stripe_publishable_key) {
+          setStripePromise(loadStripe(cfg.stripe_publishable_key))
+          setStripeEnabled(true)
+        }
+      })
+      .catch(() => {}) // Stripe just stays off — same as unconfigured
+  }, [])
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -105,6 +133,10 @@ export default function Checkout() {
       shipping.shipping_postal_code &&
       shipping.shipping_country)
 
+  // Online order paying by card, with Stripe actually configured: this
+  // deployment is meant to charge for real.
+  const useStripeCharge = needsShipping && paymentMethod === 'card' && stripeEnabled
+
   async function handleCheckout() {
     if (cart.length === 0) return
     if (!user) {
@@ -117,6 +149,28 @@ export default function Checkout() {
     }
     setSubmitting(true)
     setError(null)
+
+    let stripePaymentMethodId = null
+    if (useStripeCharge) {
+      const { stripe, elements } = stripeHandle.current
+      if (!stripe || !elements) {
+        setError('Payment form is still loading — wait a moment and try again.')
+        setSubmitting(false)
+        return
+      }
+      const { paymentMethod: pm, error: stripeError } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: elements.getElement(CardElement),
+        billing_details: { name: shipping.shipping_name || undefined },
+      })
+      if (stripeError) {
+        setError(stripeError.message)
+        setSubmitting(false)
+        return
+      }
+      stripePaymentMethodId = pm.id
+    }
+
     try {
       const result = await api.post('/transactions/', {
         type: 'completed',
@@ -128,9 +182,8 @@ export default function Checkout() {
           quantity: l.quantity,
           unit_price: l.unit_price,
         })),
-        ...(needsShipping
-          ? shipping
-          : {}),
+        ...(needsShipping ? shipping : {}),
+        ...(stripePaymentMethodId ? { stripe_payment_method_id: stripePaymentMethodId } : {}),
       })
       setReceipt(result)
       setCart([]) // also clears localStorage via the effect above
@@ -146,8 +199,10 @@ export default function Checkout() {
         shipping_country: '',
         shipping_phone: '',
       })
-    } catch {
-      setError('Checkout failed — one of the items may no longer exist.')
+    } catch (err) {
+      // A declined card (402) gets its actual reason from the server;
+      // anything else falls back to the generic message as before.
+      setError(err?.detail || 'Checkout failed — one of the items may no longer exist.')
     } finally {
       setSubmitting(false)
     }
@@ -338,6 +393,22 @@ export default function Checkout() {
             </select>
           </label>
 
+          {useStripeCharge && stripePromise && (
+            <div className="mt-3">
+              <span className="mb-1 block text-sm text-gray-600">Card details</span>
+              <Elements stripe={stripePromise}>
+                <StripeCardField onReady={handleStripeReady} />
+              </Elements>
+            </div>
+          )}
+
+          {needsShipping && paymentMethod === 'card' && !stripeEnabled && (
+            <p className="mt-2 text-xs text-gray-400">
+              Card payments aren't configured for this store yet — this will record the sale
+              without charging a card.
+            </p>
+          )}
+
           {isStaff ? (
             <label className="mt-3 block text-sm">
               <span className="mb-1 block text-gray-600">Tax (override)</span>
@@ -373,16 +444,23 @@ export default function Checkout() {
 
           <button
             onClick={handleCheckout}
-            disabled={cart.length === 0 || submitting || (user && !shippingComplete)}
+            disabled={
+              cart.length === 0 ||
+              submitting ||
+              (user && !shippingComplete) ||
+              (useStripeCharge && !stripePromise)
+            }
             className="mt-4 w-full rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           >
             {submitting
               ? 'Processing…'
               : !user
                 ? 'Sign in to complete sale'
-                : needsShipping
-                  ? 'Place order'
-                  : 'Complete sale'}
+                : useStripeCharge
+                  ? `Pay $${total.toFixed(2)}`
+                  : needsShipping
+                    ? 'Place order'
+                    : 'Complete sale'}
           </button>
         </div>
       </div>

@@ -29,7 +29,20 @@ async function request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, { headers, ...options })
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`API error ${res.status}: ${body}`)
+    // Try to surface FastAPI's {"detail": "..."} message specifically
+    // (e.g. a Stripe decline reason, a stock-conflict message) so
+    // callers can show the real reason instead of a generic one.
+    // Falls back to the raw body if it isn't JSON shaped that way.
+    let detail
+    try {
+      detail = JSON.parse(body)?.detail
+    } catch {
+      // not JSON — leave detail undefined, err.message still has the raw body
+    }
+    const err = new Error(`API error ${res.status}: ${body}`)
+    err.status = res.status
+    err.detail = typeof detail === 'string' ? detail : undefined
+    throw err
   }
   if (res.status === 204) return null
   return res.json()

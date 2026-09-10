@@ -29,12 +29,14 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
 from app.core.email import get_email_provider
+from app.core.payments import get_payment_provider
 from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item
 from app.models.transaction import (
     FulfillmentStatus,
+    PaymentMethod,
     Transaction,
     TransactionCreate,
     TransactionRead,
@@ -239,7 +241,27 @@ async def create_transaction(
     tax_amount = tx_in.tax_amount or 0.0
     total = subtotal + tax_amount
 
-    tx_data = tx_in.model_dump(exclude={"lines", "tax_amount"})
+    # If this is a real card charge (the storefront's Stripe Elements
+    # form supplied a token), attempt it now, against the
+    # server-computed total — never a client-supplied amount. A
+    # staff-run POS sale (payment_method=card but no token, meaning
+    # the card was swiped on a separate physical terminal) skips this
+    # entirely and behaves exactly as before. Deliberately BEFORE any
+    # row is written: a declined card means nothing gets created, not
+    # a transaction row that then has to be cleaned up.
+    payment_reference = None
+    if tx_in.payment_method == PaymentMethod.card and tx_in.stripe_payment_method_id:
+        provider = get_payment_provider()
+        result = await provider.charge(
+            amount=total,
+            currency="usd",
+            metadata={"payment_method_id": tx_in.stripe_payment_method_id},
+        )
+        if not result.success:
+            raise HTTPException(status_code=402, detail=result.message or "Payment failed.")
+        payment_reference = result.reference
+
+    tx_data = tx_in.model_dump(exclude={"lines", "tax_amount", "stripe_payment_method_id"})
     transaction = Transaction.model_validate(
         tx_data,
         update={
@@ -247,6 +269,7 @@ async def create_transaction(
             "subtotal": subtotal,
             "tax_amount": tax_amount,
             "total": total,
+            "payment_reference": payment_reference,
             # An online order (has a shipping address) enters the
             # fulfillment pipeline at "pending"; a staff walk-in POS
             # sale (no shipping address) has nothing to fulfill and

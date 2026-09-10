@@ -160,6 +160,15 @@ class TransactionCreate(SQLModel):
     shipping_country: str | None = None
     shipping_phone: str | None = None
 
+    # Set by the storefront's Stripe Elements form (a Stripe
+    # PaymentMethod id, e.g. "pm_..." — never a raw card number,
+    # Stripe.js exchanges the typed card for this token before it
+    # ever reaches this server). Only meaningful when payment_method
+    # is "card" and a real Stripe key is configured; a staff-run POS
+    # sale recording an already-swiped card leaves this null and
+    # behaves exactly as it always has.
+    stripe_payment_method_id: str | None = None
+
 
 class TransactionRead(TransactionBase):
     id: int

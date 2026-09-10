@@ -26,5 +26,14 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-every-real-deployment"
     access_token_expire_minutes: int = 60 * 24  # 24h
 
+    # Payments (retail vertical) — unset by default, which keeps
+    # get_payment_provider() returning ManualPaymentProvider (no
+    # external call, zero-config). Set stripe_secret_key to switch a
+    # deployment to real Stripe charging. Use a sk_test_... key while
+    # developing — test-mode charges are free and never touch real
+    # money; only a sk_live_... key charges anything for real.
+    stripe_secret_key: str | None = None
+    stripe_publishable_key: str | None = None
+
 
 settings = Settings()

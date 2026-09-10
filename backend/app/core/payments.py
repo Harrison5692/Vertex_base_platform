@@ -21,9 +21,12 @@ database.
 
 To integrate a real processor:
     1. Create e.g. StripePaymentProvider(PaymentProvider) in a new
-       file, implementing charge() to call the real API.
+       file, implementing charge() to call the real API — see
+       core/payments_stripe.py for exactly this, already done for
+       Stripe specifically.
     2. Swap the provider instance in wherever get_payment_provider()
-       is used (currently nothing calls it yet — see note below).
+       is used — get_payment_provider() itself already does this,
+       switching to Stripe automatically once stripe_secret_key is set.
     3. Store real API keys via app.core.config.settings, never
        hardcoded.
 """
@@ -62,10 +65,16 @@ class ManualPaymentProvider(PaymentProvider):
 
 def get_payment_provider() -> PaymentProvider:
     """Single point of configuration for which provider is active.
-    Nothing calls this yet — create_transaction in api/transactions.py
-    currently just records payment_method as-is, matching
-    ManualPaymentProvider's behavior implicitly. Wire this in when a
-    deployment needs to actually process a payment inline (e.g. an
-    online storefront charging a card at checkout, as opposed to a
-    staff member recording an already-completed POS sale)."""
+    Falls back to ManualPaymentProvider with zero config — a
+    deployment that never sets stripe_secret_key behaves exactly as
+    before. Set stripe_secret_key (a sk_test_... key while developing,
+    sk_live_... only once actually taking real payments) to switch to
+    real Stripe charging. See api/transactions.py for where this
+    actually gets called."""
+    from app.core.config import settings
+
+    if settings.stripe_secret_key:
+        from app.core.payments_stripe import StripePaymentProvider
+
+        return StripePaymentProvider(settings.stripe_secret_key)
     return ManualPaymentProvider()
