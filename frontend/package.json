@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.9.0",
-    "@stripe/stripe-js": "^7.10.0",
+    "@stripe/stripe-js": "^9.16.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.26.0"
