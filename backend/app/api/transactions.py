@@ -352,13 +352,77 @@ async def create_transaction(
     receipt_email = account.email if account is not None else tx_in.guest_email
     if receipt_email:
         provider = get_email_provider()
-        await provider.send(
-            to=receipt_email,
-            subject="Order confirmation",
-            body=f"Thanks for your order — total ${transaction.total:.2f}, transaction #{transaction.id}.",
+        # items_by_id was already fetched during the stock check above
+        # — reused here rather than querying again.
+        line_summary = "\n".join(
+            f"  {line.quantity} x {items_by_id[line.item_id].name} — ${line.line_total:.2f}"
+            for line in lines
         )
+        body = (
+            f"Thanks for your order — transaction #{transaction.id}\n\n"
+            f"{line_summary}\n\n"
+            f"Subtotal: ${transaction.subtotal:.2f}\n"
+            f"Tax: ${transaction.tax_amount:.2f}\n"
+            f"Total: ${transaction.total:.2f}"
+        )
+        await provider.send(to=receipt_email, subject="Order confirmation", body=body)
 
     return TransactionWithLines(**transaction.model_dump(), lines=lines)
+
+
+async def _has_existing_refund(session: AsyncSession, transaction_id: int) -> bool:
+    existing = await session.exec(
+        select(Transaction).where(
+            Transaction.related_transaction_id == transaction_id,
+            Transaction.type == TransactionType.refunded,
+        )
+    )
+    return existing.first() is not None
+
+
+async def _issue_refund(
+    session: AsyncSession,
+    original: Transaction,
+    amount: float,
+    notes: str | None,
+    performed_by: int,
+) -> Transaction:
+    """Attempts the actual money movement FIRST (if the original has a
+    payment_reference, e.g. a Stripe charge) and only creates the
+    refund Transaction row if that succeeds — same "money moves
+    before rows get written" principle as checkout, so the books
+    never claim a refund happened when the charge didn't actually
+    reverse. Shared by the manager-only direct refund endpoint,
+    refund-approval review (see api/refund_approvals.py), and order
+    cancellation below.
+
+    Never touches stock — restocking is always a separate, explicit
+    decision: through the returns system for something a customer
+    physically sends back (needs inspection first), or directly in
+    update_fulfillment_status for an order cancelled before it ever
+    shipped (nothing to inspect, it never left)."""
+    if original.payment_reference:
+        provider = get_payment_provider()
+        result = await provider.refund(original.payment_reference, amount)
+        if not result.success:
+            raise HTTPException(status_code=402, detail=result.message or "Refund failed.")
+
+    refund = Transaction(
+        account_id=original.account_id,
+        guest_label=original.guest_label,
+        guest_email=original.guest_email,
+        type=TransactionType.refunded,
+        payment_method=original.payment_method,
+        notes=notes,
+        related_transaction_id=original.id,
+        subtotal=-amount,
+        tax_amount=0.0,
+        total=-amount,
+        created_by=performed_by,
+    )
+    session.add(refund)
+    await session.flush()  # assigns refund.id without committing/expiring attributes
+    return refund
 
 
 @router.post("/{transaction_id}/refund", response_model=TransactionWithLines, status_code=201)
@@ -366,53 +430,38 @@ async def refund_transaction(
     transaction_id: int,
     body: RefundRequest,
     session: AsyncSession = Depends(get_session),
-    current: Account = Depends(require_min_tier(2)),
+    current: Account = Depends(require_min_tier(3)),
 ):
-    """Staff and above only. Creates a NEW transaction of type
-    'refunded' linked back to the original via related_transaction_id
-    — the original row is never edited, per the append-only history
-    rule. Defaults to a full refund of the original's total; pass
-    `amount` for a partial refund. Line items aren't itemized on the
-    refund by default (a partial refund isn't necessarily tied to
-    specific items) — that's a vertical-specific extension if a
-    deployment needs it."""
+    """Manager and above only (tier 3+) — a DIRECT override that
+    bypasses the normal review process. Day to day, tier-2 staff use
+    api/refund_approvals.py instead: log a request, a manager reviews
+    it, and approval calls this exact same underlying logic. This
+    endpoint exists for a manager who's already satisfied a refund is
+    warranted and doesn't need a separate approval step for their own
+    decision — refunds still aren't a button any staff member can
+    click instantly, they're just gated by tier instead of by a
+    review record for someone at this level.
+
+    Creates a NEW transaction of type 'refunded' linked back to the
+    original via related_transaction_id — the original row is never
+    edited, per the append-only history rule. Defaults to a full
+    refund of the original's total; pass `amount` for a partial
+    refund. Line items aren't itemized on the refund by default (a
+    partial refund isn't necessarily tied to specific items) — see
+    api/returns.py for that."""
     original = await session.get(Transaction, transaction_id)
     if not original:
         raise HTTPException(status_code=404, detail="Transaction not found")
     if original.type in (TransactionType.refunded, TransactionType.voided):
         raise HTTPException(status_code=409, detail="Cannot refund a refund/void transaction itself")
-
-    # The original transaction's own `type` never changes (append-only
-    # history) — so "already refunded" has to be checked by looking for
-    # an EXISTING refund row that points back at this one, not by
-    # inspecting original.type.
-    existing_refund = await session.exec(
-        select(Transaction).where(
-            Transaction.related_transaction_id == transaction_id,
-            Transaction.type == TransactionType.refunded,
-        )
-    )
-    if existing_refund.first():
+    if await _has_existing_refund(session, transaction_id):
         raise HTTPException(status_code=409, detail="Transaction has already been refunded")
 
     refund_amount = body.amount if body.amount is not None else (original.total or 0.0)
     if refund_amount <= 0 or refund_amount > (original.total or 0.0):
         raise HTTPException(status_code=422, detail="Refund amount must be > 0 and <= original total")
 
-    refund = Transaction(
-        account_id=original.account_id,
-        guest_label=original.guest_label,
-        type=TransactionType.refunded,
-        payment_method=original.payment_method,
-        notes=body.notes,
-        related_transaction_id=original.id,
-        subtotal=-refund_amount,
-        tax_amount=0.0,
-        total=-refund_amount,
-        created_by=current.id,
-    )
-    session.add(refund)
-    await session.flush()  # assigns refund.id without committing/expiring attributes
+    refund = await _issue_refund(session, original, refund_amount, body.notes, current.id)
 
     await log_audit(
         session,
@@ -445,11 +494,13 @@ async def update_fulfillment_status(
 ):
     """Staff and above only. Moves an order through
     pending -> processing -> shipped -> delivered, or sideways to
-    cancelled. delivered/cancelled are terminal — once there, this
-    endpoint refuses further changes (the append-only-history
-    approach used elsewhere doesn't apply here since this is a status
-    field, not a financial event, but "no more changes once done"
-    is still the safer default than silently allowing it)."""
+    cancelled. Cancelling restocks every line item and refunds the
+    full amount automatically (see below) — delivered/cancelled are
+    both terminal after that; this endpoint refuses further changes
+    once there (the append-only-history approach used elsewhere
+    doesn't apply here since this is a status field, not a financial
+    event, but "no more changes once done" is still the safer default
+    than silently allowing it)."""
     transaction = await session.get(Transaction, transaction_id)
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -465,6 +516,38 @@ async def update_fulfillment_status(
         )
 
     old_status = transaction.fulfillment_status
+
+    if body.status == FulfillmentStatus.cancelled:
+        # Cancelling before shipment means the items never actually
+        # left — restock them automatically, unlike a post-delivery
+        # return (which needs physical inspection first, so it goes
+        # through returns.py / refund_approvals.py instead). Also
+        # refund the full amount: as far as the customer's concerned,
+        # the order never happened.
+        lines_result = await session.exec(
+            select(TransactionLine).where(TransactionLine.transaction_id == transaction_id)
+        )
+        order_lines = lines_result.all()
+        order_item_ids = {order_line.item_id for order_line in order_lines}
+        items_result = await session.exec(
+            select(Item).where(Item.id.in_(order_item_ids)).with_for_update()
+        )
+        order_items_by_id = {order_item.id: order_item for order_item in items_result.all()}
+        for order_line in order_lines:
+            order_item = order_items_by_id.get(order_line.item_id)
+            if order_item and order_item.stock_quantity is not None:
+                order_item.stock_quantity += order_line.quantity
+                session.add(order_item)
+
+        if not await _has_existing_refund(session, transaction_id) and (transaction.total or 0) > 0:
+            await _issue_refund(
+                session,
+                transaction,
+                transaction.total,
+                "Order cancelled before shipment",
+                current.id,
+            )
+
     transaction.fulfillment_status = body.status
     session.add(transaction)
 

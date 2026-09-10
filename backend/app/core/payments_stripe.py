@@ -69,3 +69,28 @@ class StripePaymentProvider(PaymentProvider):
             )
 
         return PaymentResult(success=True, reference=intent.id, message=None)
+
+    async def refund(self, payment_reference: str, amount: float) -> PaymentResult:
+        if not payment_reference:
+            return PaymentResult(
+                success=False, reference=None, message="No charge on file to refund."
+            )
+        try:
+            refund = await self._client.refunds.create_async(
+                {
+                    "payment_intent": payment_reference,
+                    "amount": round(amount * 100),
+                }
+            )
+        except stripe.StripeError as exc:
+            return PaymentResult(
+                success=False, reference=None, message=exc.user_message or "Refund failed."
+            )
+
+        if refund.status not in ("succeeded", "pending"):
+            return PaymentResult(
+                success=False,
+                reference=refund.id,
+                message=f"Refund not completed (status: {refund.status}).",
+            )
+        return PaymentResult(success=True, reference=refund.id, message=None)

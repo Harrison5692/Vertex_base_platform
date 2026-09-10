@@ -10,6 +10,7 @@ from app.api import (
     newsletter,
     notifications,
     payments,
+    refund_approvals,
     returns,
     transactions,
 )
@@ -35,6 +36,7 @@ app.include_router(attachments.router)
 app.include_router(newsletter.router)
 app.include_router(payments.router)
 app.include_router(returns.router)
+app.include_router(refund_approvals.router)
 
 
 @app.get("/health")

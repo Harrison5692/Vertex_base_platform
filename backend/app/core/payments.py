@@ -51,6 +51,14 @@ class PaymentProvider(ABC):
         dependent on which real processor gets wired in."""
         raise NotImplementedError
 
+    @abstractmethod
+    async def refund(self, payment_reference: str, amount: float) -> PaymentResult:
+        """Attempt to reverse a previous charge. payment_reference is
+        whatever charge() returned as `reference` (e.g. a Stripe
+        PaymentIntent id) — the caller is responsible for having
+        stored it at charge time."""
+        raise NotImplementedError
+
 
 class ManualPaymentProvider(PaymentProvider):
     """Default provider — does not contact any external service.
@@ -60,6 +68,9 @@ class ManualPaymentProvider(PaymentProvider):
     actual behavior for every transaction in the base build."""
 
     async def charge(self, amount: float, currency: str, metadata: dict) -> PaymentResult:
+        return PaymentResult(success=True, reference=None, message="Recorded manually — not processed by this system.")
+
+    async def refund(self, payment_reference: str, amount: float) -> PaymentResult:
         return PaymentResult(success=True, reference=None, message="Recorded manually — not processed by this system.")
 
 
