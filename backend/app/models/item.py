@@ -42,6 +42,14 @@ class ItemBase(SQLModel):
     # Services / catering
     duration_minutes: int | None = Field(default=None)
 
+    # Retail-vertical: links a discounted "Clearance"-style listing
+    # back to the original item it was created from when a return got
+    # restocked at a lower price (see api/returns.py) — a separate
+    # Item row rather than a batch/lot concept, since this table has
+    # one price per row and that's a bigger structural change than
+    # one feature warrants. Null for every ordinary item.
+    parent_item_id: int | None = Field(default=None, foreign_key="item.id", index=True)
+
 
 class Item(ItemBase, table=True):
     """Actual database table. __table_args__ enforces price/stock at

@@ -50,6 +50,11 @@ export default function Layout({ children, banner }) {
                 Order queue
               </NavLink>
             )}
+            {isStaff && (
+              <NavLink to="/returns" className={navLinkClass}>
+                Returns
+              </NavLink>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-3">

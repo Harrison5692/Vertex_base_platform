@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import Items from './pages/Items'
 import Notifications from './pages/Notifications'
 import OrderQueue from './pages/OrderQueue'
+import Returns from './pages/Returns'
 import ProductDetail from './pages/ProductDetail'
 import Transactions from './pages/Transactions'
 
@@ -61,6 +62,14 @@ export default function App() {
             element={
               <ProtectedRoute minTier={2}>
                 <OrderQueue />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/returns"
+            element={
+              <ProtectedRoute minTier={2}>
+                <Returns />
               </ProtectedRoute>
             }
           />
