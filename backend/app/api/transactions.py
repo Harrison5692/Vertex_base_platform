@@ -29,6 +29,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
 from app.core.email import get_email_provider
+from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item
@@ -178,16 +179,35 @@ async def create_transaction(
 
     # Validate every referenced item exists BEFORE creating anything —
     # letting a bad item_id reach the database insert means a raw FK
-    # violation (500) instead of a clean, actionable error.
+    # violation (500) instead of a clean, actionable error. Locked
+    # with FOR UPDATE so two concurrent checkouts against the same
+    # low-stock item can't both read "3 left" and both succeed — the
+    # second one blocks here until the first commits or rolls back,
+    # then re-reads the updated count.
     item_ids = {line.item_id for line in tx_in.lines}
-    result = await session.exec(select(Item.id).where(Item.id.in_(item_ids)))
-    found_ids = set(result.all())
-    missing_ids = item_ids - found_ids
+    result = await session.exec(select(Item).where(Item.id.in_(item_ids)).with_for_update())
+    items_by_id = {item.id: item for item in result.all()}
+    missing_ids = item_ids - set(items_by_id)
     if missing_ids:
         raise HTTPException(
             status_code=404,
             detail=f"Item id(s) not found: {sorted(missing_ids)}",
         )
+
+    # Stock check — only for items that actually track stock (retail).
+    # A service/catering item that leaves stock_quantity null is
+    # exempt by design, same as everywhere else stock is touched.
+    requested_qty: dict[int, int] = {}
+    for line in tx_in.lines:
+        requested_qty[line.item_id] = requested_qty.get(line.item_id, 0) + line.quantity
+
+    insufficient = []
+    for item_id, qty in requested_qty.items():
+        item = items_by_id[item_id]
+        if item.stock_quantity is not None and qty > item.stock_quantity:
+            insufficient.append(f"{item.name} (requested {qty}, {item.stock_quantity} in stock)")
+    if insufficient:
+        raise HTTPException(status_code=409, detail=f"Not enough stock: {'; '.join(insufficient)}")
 
     subtotal = sum(line.quantity * line.unit_price for line in tx_in.lines)
     tax_amount = tx_in.tax_amount or 0.0
@@ -218,6 +238,21 @@ async def create_transaction(
         session.add(line)
         lines.append(line)
     await session.flush()  # assigns each line.id, still no commit/expire
+
+    # Decrement stock now that the sale is confirmed — same
+    # session/transaction as everything else here, so any failure
+    # below rolls this back too instead of leaving stock out of sync
+    # with what was actually sold.
+    for item_id, qty in requested_qty.items():
+        item = items_by_id[item_id]
+        if item.stock_quantity is None:
+            continue
+        previous_stock = item.stock_quantity
+        item.stock_quantity -= qty
+        session.add(item)
+        await maybe_notify_low_stock(
+            session, item, previous_stock=previous_stock, current_account_id=current_account.id
+        )
 
     await log_audit(
         session,

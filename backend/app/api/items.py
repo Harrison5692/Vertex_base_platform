@@ -14,10 +14,10 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
 from app.core.deps import get_current_account, require_min_tier
+from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item, ItemCreate, ItemRead, ItemUpdate
-from app.models.notification import Notification
 
 router = APIRouter(prefix="/items", tags=["items"])
 # No router-level auth dependency — GET routes are intentionally public
@@ -26,37 +26,6 @@ router = APIRouter(prefix="/items", tags=["items"])
 # require_min_tier(2), which pulls in get_current_account internally —
 # so mutations are still fully auth-gated, just not via a blanket
 # router-level requirement that would also lock out browsing.
-
-
-async def _maybe_notify_low_stock(
-    session: AsyncSession, item: Item, previous_stock: int | None, current_account_id: int
-) -> None:
-    """Fires a notification to every active staff/admin account when an
-    item's stock crosses AT OR BELOW its configured threshold. Only
-    fires on the actual crossing (previous stock was above threshold,
-    or the item is brand new) — not on every unrelated edit made while
-    stock happens to already be low, which would spam the same alert
-    repeatedly. No-ops entirely if low_stock_threshold isn't set —
-    this feature is opt-in per item, not forced on every deployment."""
-    if item.low_stock_threshold is None or item.stock_quantity is None:
-        return
-    if item.stock_quantity > item.low_stock_threshold:
-        return
-    if previous_stock is not None and previous_stock <= item.low_stock_threshold:
-        return  # already was below threshold — don't re-alert on unrelated edits
-
-    result = await session.exec(
-        select(Account).where(Account.tier >= 2, Account.is_active == True)  # noqa: E712
-    )
-    for staff in result.all():
-        session.add(
-            Notification(
-                account_id=staff.id,
-                message=f"Low stock: '{item.name}' at {item.stock_quantity} "
-                f"(threshold {item.low_stock_threshold})",
-                created_by=current_account_id,
-            )
-        )
 
 
 @router.get("/", response_model=list[ItemRead])
@@ -89,7 +58,7 @@ async def create_item(
     session.add(item)
     await session.flush()  # assigns item.id without committing/expiring attributes
 
-    await _maybe_notify_low_stock(session, item, previous_stock=None, current_account_id=current.id)
+    await maybe_notify_low_stock(session, item, previous_stock=None, current_account_id=current.id)
 
     await log_audit(
         session,
@@ -129,7 +98,7 @@ async def update_item(
         setattr(item, field, value)
     session.add(item)
 
-    await _maybe_notify_low_stock(
+    await maybe_notify_low_stock(
         session, item, previous_stock=previous_stock, current_account_id=current.id
     )
 
