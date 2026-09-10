@@ -50,6 +50,7 @@ scan once there's real data volume.
 from datetime import datetime
 from enum import Enum
 
+from pydantic import EmailStr
 from sqlmodel import Field, SQLModel
 
 
@@ -92,6 +93,11 @@ class PaymentMethod(str, Enum):
 class TransactionBase(SQLModel):
     account_id: int | None = Field(default=None, foreign_key="account.id", index=True)
     guest_label: str | None = Field(default=None, max_length=200)
+    # Retail-vertical: where to send the receipt for a guest checkout
+    # (no account_id at all). Null whenever account_id is set — the
+    # account's own email covers that case — and null for a staff
+    # walk-in POS sale, which sends no receipt either way.
+    guest_email: EmailStr | None = Field(default=None, max_length=255)
     type: TransactionType
     payment_method: PaymentMethod | None = Field(default=None)
     payment_reference: str | None = Field(default=None, max_length=255, index=True)
@@ -128,7 +134,11 @@ class TransactionBase(SQLModel):
 
 class Transaction(TransactionBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    created_by: int = Field(foreign_key="account.id", index=True)
+    # Nullable: a guest checkout (no account at all, see guest_email
+    # above) has no account to attribute creation to. Every other path
+    # — staff POS sale, logged-in customer checkout, refund — still
+    # always sets this.
+    created_by: int | None = Field(default=None, foreign_key="account.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
@@ -143,6 +153,7 @@ class TransactionCreate(SQLModel):
 
     account_id: int | None = None
     guest_label: str | None = None
+    guest_email: EmailStr | None = None
     type: TransactionType
     payment_method: PaymentMethod | None = None
     notes: str | None = None
@@ -172,5 +183,5 @@ class TransactionCreate(SQLModel):
 
 class TransactionRead(TransactionBase):
     id: int
-    created_by: int
+    created_by: int | None
     created_at: datetime

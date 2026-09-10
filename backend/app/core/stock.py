@@ -14,7 +14,7 @@ from app.models.notification import Notification
 
 
 async def maybe_notify_low_stock(
-    session: AsyncSession, item: Item, previous_stock: int | None, current_account_id: int
+    session: AsyncSession, item: Item, previous_stock: int | None, current_account_id: int | None
 ) -> None:
     """Fires a notification to every active staff/admin account when an
     item's stock crosses AT OR BELOW its configured threshold. Only

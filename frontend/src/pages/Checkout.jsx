@@ -34,6 +34,11 @@ export default function Checkout() {
   // configured rate with no way to change it client-side.
   const [taxOverride, setTaxOverride] = useState(null)
   const [guestLabel, setGuestLabel] = useState('')
+  // Guest checkout: no account required to buy, but an email is
+  // required so the order confirmation has somewhere to go. Only
+  // relevant when nobody's logged in — a logged-in customer's own
+  // account email covers this already.
+  const [guestEmail, setGuestEmail] = useState('')
   // Shipping is a retail-vertical concept: a staff-run walk-in sale
   // has no destination, so this only applies to a non-staff (online)
   // checkout and is required there before submitting.
@@ -139,12 +144,12 @@ export default function Checkout() {
 
   async function handleCheckout() {
     if (cart.length === 0) return
-    if (!user) {
-      setShowAuth(true)
-      return
-    }
     if (!shippingComplete) {
       setError('Enter a complete shipping address before checking out.')
+      return
+    }
+    if (!user && needsShipping && !guestEmail) {
+      setError('Enter an email so we can send your receipt.')
       return
     }
     setSubmitting(true)
@@ -183,11 +188,13 @@ export default function Checkout() {
           unit_price: l.unit_price,
         })),
         ...(needsShipping ? shipping : {}),
+        ...(!user && guestEmail ? { guest_email: guestEmail } : {}),
         ...(stripePaymentMethodId ? { stripe_payment_method_id: stripePaymentMethodId } : {}),
       })
       setReceipt(result)
       setCart([]) // also clears localStorage via the effect above
       setGuestLabel('')
+      setGuestEmail('')
       setTaxOverride(null)
       setShipping({
         shipping_name: '',
@@ -320,6 +327,28 @@ export default function Checkout() {
             </label>
           )}
 
+          {!user && needsShipping && (
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <label className="block text-sm">
+                <span className="mb-1 block text-gray-600">Email (for your receipt)</span>
+                <input
+                  type="email"
+                  value={guestEmail}
+                  onChange={(e) => setGuestEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowAuth(true)}
+                className="mt-1.5 text-xs text-brand-600 hover:underline"
+              >
+                Already have an account? Sign in
+              </button>
+            </div>
+          )}
+
           {needsShipping && (
             <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
               <p className="text-sm font-medium text-gray-700">Shipping address</p>
@@ -447,20 +476,19 @@ export default function Checkout() {
             disabled={
               cart.length === 0 ||
               submitting ||
-              (user && !shippingComplete) ||
+              !shippingComplete ||
+              (!user && needsShipping && !guestEmail) ||
               (useStripeCharge && !stripePromise)
             }
             className="mt-4 w-full rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           >
             {submitting
               ? 'Processing…'
-              : !user
-                ? 'Sign in to complete sale'
-                : useStripeCharge
-                  ? `Pay $${total.toFixed(2)}`
-                  : needsShipping
-                    ? 'Place order'
-                    : 'Complete sale'}
+              : useStripeCharge
+                ? `Pay $${total.toFixed(2)}`
+                : needsShipping
+                  ? 'Place order'
+                  : 'Complete sale'}
           </button>
         </div>
       </div>

@@ -27,7 +27,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
-from app.core.deps import get_current_account, require_min_tier
+from app.core.deps import get_current_account, get_current_account_optional, require_min_tier
 from app.core.email import get_email_provider
 from app.core.payments import get_payment_provider
 from app.core.stock import maybe_notify_low_stock
@@ -48,9 +48,13 @@ from app.models.transaction_line import (
     TransactionLineRead,
 )
 
-router = APIRouter(
-    prefix="/transactions", tags=["transactions"], dependencies=[Depends(get_current_account)]
-)
+router = APIRouter(prefix="/transactions", tags=["transactions"])
+# No router-level auth dependency — POST / (create_transaction) is
+# the one endpoint that must serve BOTH logged-in and guest requests
+# (guest checkout), so it uses get_current_account_optional itself.
+# Every other endpoint below carries its own explicit
+# get_current_account/require_min_tier dependency, so removing the
+# blanket router-level requirement doesn't leave any of them open.
 
 
 class TransactionWithLines(TransactionRead):
@@ -190,17 +194,30 @@ async def get_transaction(
 async def create_transaction(
     tx_in: TransactionCreateRequest,
     session: AsyncSession = Depends(get_session),
-    current_account: Account = Depends(get_current_account),
+    current_account: Account | None = Depends(get_current_account_optional),
 ):
     """account_id is optional — a guest/walk-in sale passes null and
     relies on guest_label instead. Requires at least one line item;
     subtotal/total are computed server-side from the lines, never
-    trusted from the client."""
+    trusted from the client.
+
+    Guest checkout: current_account is None whenever no Authorization
+    header was sent at all (see get_current_account_optional) — a
+    logged-in customer or staff member still authenticates normally.
+    An online order (has a shipping address) placed with no account
+    at all requires guest_email, since that's the only way to send a
+    receipt; a staff walk-in POS sale needs neither."""
     account = None
     if tx_in.account_id is not None:
         account = await session.get(Account, tx_in.account_id)
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
+
+    is_online_order = bool(tx_in.shipping_line1)
+    if is_online_order and account is None and current_account is None and not tx_in.guest_email:
+        raise HTTPException(
+            status_code=422, detail="An email is required to check out without an account"
+        )
 
     if not tx_in.lines:
         raise HTTPException(status_code=422, detail="A transaction needs at least one line item")
@@ -265,7 +282,7 @@ async def create_transaction(
     transaction = Transaction.model_validate(
         tx_data,
         update={
-            "created_by": current_account.id,
+            "created_by": current_account.id if current_account else None,
             "subtotal": subtotal,
             "tax_amount": tax_amount,
             "total": total,
@@ -309,7 +326,10 @@ async def create_transaction(
         item.stock_quantity -= qty
         session.add(item)
         await maybe_notify_low_stock(
-            session, item, previous_stock=previous_stock, current_account_id=current_account.id
+            session,
+            item,
+            previous_stock=previous_stock,
+            current_account_id=current_account.id if current_account else None,
         )
 
     await log_audit(
@@ -317,7 +337,7 @@ async def create_transaction(
         table_name="transaction",
         record_id=transaction.id,
         action="create",
-        changed_by=current_account.id,
+        changed_by=current_account.id if current_account else None,
         new_values={**transaction.model_dump(), "lines": [l.model_dump() for l in lines]},
     )
     await session.commit()
@@ -325,13 +345,15 @@ async def create_transaction(
     for line in lines:
         await session.refresh(line)
 
-    # Order confirmation — only when there's a real account to email;
-    # a guest/walk-in sale (guest_label, no account_id) has no address
-    # to send to.
-    if account is not None:
+    # Order confirmation — to the account's email if there is one,
+    # otherwise to guest_email for a guest checkout. A staff walk-in
+    # POS sale (guest_label, no account, no guest_email) gets neither,
+    # same as before.
+    receipt_email = account.email if account is not None else tx_in.guest_email
+    if receipt_email:
         provider = get_email_provider()
         await provider.send(
-            to=account.email,
+            to=receipt_email,
             subject="Order confirmation",
             body=f"Thanks for your order — total ${transaction.total:.2f}, transaction #{transaction.id}.",
         )
