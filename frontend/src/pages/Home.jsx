@@ -48,6 +48,7 @@ export default function Home() {
   const [allItems, setAllItems] = useState([])
   const [items, setItems] = useState([])
   const [category, setCategory] = useState(null)
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(null)
   const isStaff = user && user.tier >= 2
@@ -66,13 +67,14 @@ export default function Home() {
     setLoading(true)
     const params = new URLSearchParams()
     if (category) params.set('category', category)
+    if (search) params.set('q', search)
     const qs = params.toString()
     api
       .get(`/items/${qs ? `?${qs}` : ''}`)
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
-  }, [category])
+  }, [category, search])
 
   const categories = useMemo(
     () => [...new Set(allItems.map((i) => i.category).filter(Boolean))].sort(),
@@ -95,6 +97,13 @@ export default function Home() {
         <CategorySidebar categories={categories} active={category} onSelect={setCategory} />
 
         <div className="flex-1">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search products…"
+            className="mb-4 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          />
+
           {loading && <p className="text-gray-500">Loading…</p>}
 
           {!loading && (
@@ -103,7 +112,9 @@ export default function Home() {
                 <ProductCard key={item.id} item={item} />
               ))}
               {items.length === 0 && (
-                <p className="col-span-full text-gray-400">No items in this category yet.</p>
+                <p className="col-span-full text-gray-400">
+                  {search ? `No products match "${search}".` : 'No items in this category yet.'}
+                </p>
               )}
             </div>
           )}
