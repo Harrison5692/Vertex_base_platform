@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { CardElement, Elements } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
 import AuthModal from '../components/AuthModal'
@@ -20,11 +21,94 @@ function loadCart() {
   }
 }
 
-export default function Checkout() {
+function CartLine({ line, onUpdateQuantity, onRemove }) {
+  return (
+    <li className="flex items-center gap-3 py-3">
+      {line.image_url ? (
+        <img src={line.image_url} alt={line.name} className="h-14 w-14 rounded-lg object-cover" />
+      ) : (
+        <div className="h-14 w-14 shrink-0 rounded-lg bg-gray-100" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-gray-900">{line.name}</p>
+        <p className="text-sm text-gray-500">${line.unit_price.toFixed(2)} each</p>
+      </div>
+      <input
+        type="number"
+        min="1"
+        value={line.quantity}
+        onChange={(e) => onUpdateQuantity(line.item_id, e.target.value)}
+        className="w-14 rounded border border-gray-300 px-1 py-1 text-center text-sm"
+      />
+      <span className="w-16 text-right text-sm font-medium text-gray-900">
+        ${(line.unit_price * line.quantity).toFixed(2)}
+      </span>
+      <button onClick={() => onRemove(line.item_id)} className="text-gray-400 hover:text-red-600">
+        ✕
+      </button>
+    </li>
+  )
+}
+
+/** Staff-only: a search + quick-add grid for ringing up an in-person
+ * sale. A customer checking out online never needs this — they add
+ * items by browsing the storefront (Home / product pages) — so it's
+ * gated to isStaff entirely, not shown as a general "keep shopping"
+ * widget. */
+function StaffQuickAdd({ onAddToCart }) {
+  const [items, setItems] = useState([])
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (search) params.set('q', search)
+    const qs = params.toString()
+    api
+      .get(`/items/${qs ? `?${qs}` : ''}`)
+      .then(setItems)
+      .catch(() => setItems([]))
+  }, [search])
+
+  return (
+    <div className="lg:col-span-2">
+      <h2 className="font-semibold text-gray-900">Ring up a sale</h2>
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search items…"
+        className="mb-3 mt-2 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+      />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => onAddToCart(item)}
+            disabled={item.price == null}
+            className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-sm transition hover:border-brand-300 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {item.image_url ? (
+              <img src={item.image_url} alt={item.name} className="h-28 w-full object-cover" />
+            ) : (
+              <div className="h-28 w-full bg-gray-100" />
+            )}
+            <div className="p-3">
+              <p className="font-medium text-gray-900">{item.name}</p>
+              <p className="mt-1 text-sm text-gray-500">
+                {item.price != null ? `$${item.price.toFixed(2)}` : 'No price set'}
+              </p>
+            </div>
+          </button>
+        ))}
+        {items.length === 0 && <p className="col-span-full text-gray-400">No items found.</p>}
+      </div>
+    </div>
+  )
+}
+
+export default function Cart() {
   const { user } = useAuth()
   const config = useClientConfig()
   const isStaff = user && user.tier >= 2
-  const [items, setItems] = useState([])
   const [cart, setCart] = useState(loadCart)
   const [paymentMethod, setPaymentMethod] = useState('card')
   // Tax is config-driven, not customer-editable — an earlier version of
@@ -55,8 +139,12 @@ export default function Checkout() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [receipt, setReceipt] = useState(null)
+  // Snapshot of the cart at the moment of submit, kept only so the
+  // receipt screen can show names/thumbnails — the server's
+  // TransactionWithLines response doesn't carry item names, and by
+  // the time the receipt renders, `cart` itself has been cleared.
+  const [receiptItems, setReceiptItems] = useState([])
   const [showAuth, setShowAuth] = useState(false)
-  const [search, setSearch] = useState('')
 
   // Stripe is entirely optional per-deployment (see /payments/config)
   // — stripePromise stays null, and the card field never renders,
@@ -84,16 +172,6 @@ export default function Checkout() {
   }, [])
 
   useEffect(() => {
-    const params = new URLSearchParams()
-    if (search) params.set('q', search)
-    const qs = params.toString()
-    api
-      .get(`/items/${qs ? `?${qs}` : ''}`)
-      .then(setItems)
-      .catch(() => setError('Could not load items.'))
-  }, [search])
-
-  useEffect(() => {
     localStorage.setItem(CART_KEY, JSON.stringify(cart))
   }, [cart])
 
@@ -107,21 +185,27 @@ export default function Checkout() {
       }
       return [
         ...prev,
-        { item_id: item.id, name: item.name, unit_price: item.price ?? 0, quantity: 1 },
+        {
+          item_id: item.id,
+          name: item.name,
+          unit_price: item.price ?? 0,
+          quantity: 1,
+          image_url: item.image_url ?? null,
+        },
       ]
     })
   }
 
   function updateQuantity(itemId, quantity) {
     const q = Math.max(1, Number(quantity) || 1)
-    setCart((prev) => prev.map((l) => (l.item_id === itemId ? { ...l, quantity: q } : l)))
+    setCart((prev) => prev.map((line) => (line.item_id === itemId ? { ...line, quantity: q } : line)))
   }
 
   function removeLine(itemId) {
-    setCart((prev) => prev.filter((l) => l.item_id !== itemId))
+    setCart((prev) => prev.filter((line) => line.item_id !== itemId))
   }
 
-  const subtotal = cart.reduce((sum, l) => sum + l.unit_price * l.quantity, 0)
+  const subtotal = cart.reduce((sum, line) => sum + line.unit_price * line.quantity, 0)
   const configuredTax = subtotal * (config.tax_rate ?? 0)
   const tax = taxOverride ?? configuredTax
   const total = subtotal + tax
@@ -182,16 +266,17 @@ export default function Checkout() {
         payment_method: paymentMethod,
         guest_label: guestLabel || null,
         tax_amount: tax,
-        lines: cart.map((l) => ({
-          item_id: l.item_id,
-          quantity: l.quantity,
-          unit_price: l.unit_price,
+        lines: cart.map((line) => ({
+          item_id: line.item_id,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
         })),
         ...(needsShipping ? shipping : {}),
         ...(!user && guestEmail ? { guest_email: guestEmail } : {}),
         ...(stripePaymentMethodId ? { stripe_payment_method_id: stripePaymentMethodId } : {}),
       })
       setReceipt(result)
+      setReceiptItems(cart)
       setCart([]) // also clears localStorage via the effect above
       setGuestLabel('')
       setGuestEmail('')
@@ -216,28 +301,51 @@ export default function Checkout() {
   }
 
   if (receipt) {
+    const itemsById = Object.fromEntries(receiptItems.map((line) => [line.item_id, line]))
     return (
       <Layout>
         <div className="mx-auto max-w-md rounded-xl border border-gray-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-sm font-medium text-green-600">Sale completed</p>
+          <p className="text-sm font-medium text-green-600">
+            {needsShipping ? 'Order placed' : 'Sale completed'}
+          </p>
           <p className="mt-2 text-3xl font-bold text-gray-900">${receipt.total.toFixed(2)}</p>
           <p className="mt-1 text-sm text-gray-500">Transaction #{receipt.id}</p>
           <ul className="mt-4 divide-y divide-gray-100 text-left text-sm">
-            {receipt.lines.map((l) => (
-              <li key={l.id} className="flex justify-between py-2">
-                <span>
-                  {l.quantity}× item #{l.item_id}
-                </span>
-                <span>${l.line_total.toFixed(2)}</span>
-              </li>
-            ))}
+            {receipt.lines.map((line) => {
+              const known = itemsById[line.item_id]
+              return (
+                <li key={line.id} className="flex items-center gap-3 py-2">
+                  {known?.image_url ? (
+                    <img
+                      src={known.image_url}
+                      alt={known.name}
+                      className="h-10 w-10 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 shrink-0 rounded-lg bg-gray-100" />
+                  )}
+                  <span className="flex-1 truncate">
+                    {line.quantity}× {known?.name || `Item #${line.item_id}`}
+                  </span>
+                  <span>${line.line_total.toFixed(2)}</span>
+                </li>
+              )
+            })}
           </ul>
-          <button
-            onClick={() => setReceipt(null)}
-            className="mt-5 w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600"
-          >
-            New sale
-          </button>
+          <div className="mt-5 flex gap-2">
+            <Link
+              to="/"
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Continue shopping
+            </Link>
+            <button
+              onClick={() => setReceipt(null)}
+              className="flex-1 rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-600"
+            >
+              New sale
+            </button>
+          </div>
         </div>
       </Layout>
     )
@@ -245,72 +353,30 @@ export default function Checkout() {
 
   return (
     <Layout>
-      <h1 className="text-2xl font-semibold text-gray-900">Checkout</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-gray-900">Cart</h1>
+        <Link to="/" className="text-sm text-brand-600 hover:underline">
+          ← Continue shopping
+        </Link>
+      </div>
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items…"
-            className="mb-3 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-          />
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {items.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => addToCart(item)}
-                disabled={item.price == null}
-                className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-sm transition hover:border-brand-300 hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {item.image_url ? (
-                  <img src={item.image_url} alt={item.name} className="h-28 w-full object-cover" />
-                ) : (
-                  <div className="h-28 w-full bg-gray-100" />
-                )}
-                <div className="p-3">
-                  <p className="font-medium text-gray-900">{item.name}</p>
-                  <p className="mt-1 text-sm text-gray-500">
-                    {item.price != null ? `$${item.price.toFixed(2)}` : 'No price set'}
-                  </p>
-                </div>
-              </button>
-            ))}
-            {items.length === 0 && (
-              <p className="col-span-full text-gray-400">No items available.</p>
-            )}
-          </div>
-        </div>
+      <div className={`mt-6 grid grid-cols-1 gap-6 ${isStaff ? 'lg:grid-cols-3' : 'mx-auto max-w-lg'}`}>
+        {isStaff && <StaffQuickAdd onAddToCart={addToCart} />}
 
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-          <h2 className="font-semibold text-gray-900">Cart</h2>
-
           {cart.length === 0 ? (
-            <p className="mt-3 text-sm text-gray-400">Nothing added yet.</p>
+            <p className="text-sm text-gray-400">Your cart is empty.</p>
           ) : (
-            <ul className="mt-3 space-y-2">
-              {cart.map((l) => (
-                <li key={l.item_id} className="flex items-center justify-between text-sm">
-                  <span className="flex-1 truncate">{l.name}</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={l.quantity}
-                    onChange={(e) => updateQuantity(l.item_id, e.target.value)}
-                    className="w-14 rounded border border-gray-300 px-1 py-0.5 text-center"
-                  />
-                  <span className="w-16 text-right">
-                    ${(l.unit_price * l.quantity).toFixed(2)}
-                  </span>
-                  <button
-                    onClick={() => removeLine(l.item_id)}
-                    className="ml-2 text-gray-400 hover:text-red-600"
-                  >
-                    ✕
-                  </button>
-                </li>
+            <ul className="divide-y divide-gray-100">
+              {cart.map((line) => (
+                <CartLine
+                  key={line.item_id}
+                  line={line}
+                  onUpdateQuantity={updateQuantity}
+                  onRemove={removeLine}
+                />
               ))}
             </ul>
           )}

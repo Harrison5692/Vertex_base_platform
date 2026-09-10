@@ -3,7 +3,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import { AuthProvider } from './lib/auth'
 import { ClientConfigProvider } from './lib/clientConfig'
 import Accounts from './pages/Accounts'
-import Checkout from './pages/Checkout'
+import Cart from './pages/Cart'
 import Home from './pages/Home'
 import Items from './pages/Items'
 import Notifications from './pages/Notifications'
@@ -32,7 +32,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/items" element={<Items />} />
           <Route path="/items/:id" element={<ProductDetail />} />
-          <Route path="/checkout" element={<Checkout />} />
+          <Route path="/cart" element={<Cart />} />
           <Route
             path="/transactions"
             element={

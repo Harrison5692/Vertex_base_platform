@@ -27,8 +27,8 @@ export default function Layout({ children, banner }) {
             <NavLink to="/items" className={navLinkClass}>
               Items
             </NavLink>
-            <NavLink to="/checkout" className={navLinkClass}>
-              Checkout
+            <NavLink to="/cart" className={navLinkClass}>
+              Cart
             </NavLink>
             {user && (
               <NavLink to="/transactions" className={navLinkClass}>

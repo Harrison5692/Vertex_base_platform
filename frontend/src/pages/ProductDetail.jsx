@@ -43,7 +43,13 @@ export default function ProductDetail() {
         )
       : [
           ...cart,
-          { item_id: item.id, name: item.name, unit_price: item.price ?? 0, quantity: 1 },
+          {
+            item_id: item.id,
+            name: item.name,
+            unit_price: item.price ?? 0,
+            quantity: 1,
+            image_url: item.image_url ?? null,
+          },
         ]
     saveCart(next)
     setAdded(true)
@@ -121,7 +127,7 @@ export default function ProductDetail() {
               {added ? 'Added ✓' : 'Add to cart'}
             </button>
             <button
-              onClick={() => navigate('/checkout')}
+              onClick={() => navigate('/cart')}
               className="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Go to cart

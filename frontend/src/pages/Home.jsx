@@ -86,7 +86,7 @@ export default function Home() {
       {isStaff && (
         <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatCard label="Items" value={allItems.length} to="/items" />
-          <StatCard label="New sale" value="Checkout →" to="/checkout" />
+          <StatCard label="New sale" value="Cart →" to="/cart" />
           <StatCard label="Unread notifications" value={unreadCount ?? '—'} to="/notifications" />
           <StatCard label="Accounts" value="Manage →" to="/accounts" />
           <StatCard label="Order queue" value="Fulfill →" to="/orders/queue" />
