@@ -10,7 +10,11 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selected, setSelected] = useState(null) // full detail w/ lines
-  const [refunding, setRefunding] = useState(false)
+  const [showRefundForm, setShowRefundForm] = useState(false)
+  const [refundReason, setRefundReason] = useState('')
+  const [refundAmount, setRefundAmount] = useState('')
+  const [refundSubmitting, setRefundSubmitting] = useState(false)
+  const [refundSuccess, setRefundSuccess] = useState(null)
 
   function load() {
     setLoading(true)
@@ -26,6 +30,10 @@ export default function Transactions() {
 
   async function openDetail(id) {
     setError(null)
+    setShowRefundForm(false)
+    setRefundReason('')
+    setRefundAmount('')
+    setRefundSuccess(null)
     try {
       const detail = await api.get(`/transactions/${id}`)
       setSelected(detail)
@@ -34,23 +42,21 @@ export default function Transactions() {
     }
   }
 
-  async function handleRefund(id) {
-    if (!confirm('Refund this transaction in full?')) return
-    setRefunding(true)
+  async function handleRequestRefund() {
+    setRefundSubmitting(true)
     setError(null)
     try {
-      await api.post(`/transactions/${id}/refund`, {})
-      setSelected(null)
-      load()
+      await api.post('/refund-approvals/', {
+        original_transaction_id: selected.id,
+        reason: refundReason || null,
+        requested_amount: refundAmount ? Number(refundAmount) : null,
+      })
+      setRefundSuccess('Refund request submitted — a manager will review it.')
+      setShowRefundForm(false)
     } catch (err) {
-      // The backend returns 409 if this was already refunded — surface
-      // that distinctly rather than a generic failure message.
-      const msg = String(err.message || '')
-      setError(
-        msg.includes('409') ? 'This transaction has already been refunded.' : 'Refund failed.'
-      )
+      setError(err?.detail || 'Could not submit the refund request.')
     } finally {
-      setRefunding(false)
+      setRefundSubmitting(false)
     }
   }
 
@@ -182,16 +188,59 @@ export default function Transactions() {
               >
                 Close
               </button>
-              {isStaff && selected.type !== 'refunded' && selected.type !== 'voided' && (
-                <button
-                  onClick={() => handleRefund(selected.id)}
-                  disabled={refunding}
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-                >
-                  {refunding ? 'Refunding…' : 'Refund'}
-                </button>
-              )}
+              {selected.type !== 'refunded' &&
+                selected.type !== 'voided' &&
+                !refundSuccess &&
+                !showRefundForm && (
+                  <button
+                    onClick={() => setShowRefundForm(true)}
+                    className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                  >
+                    Request a refund
+                  </button>
+                )}
             </div>
+
+            {refundSuccess && (
+              <p className="mt-3 text-sm font-medium text-green-600">{refundSuccess}</p>
+            )}
+
+            {showRefundForm && (
+              <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
+                <p className="text-sm font-medium text-gray-700">Request a refund</p>
+                <textarea
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  placeholder="Why are you requesting this refund?"
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                  placeholder={`Amount (leave blank for full $${(selected.total ?? 0).toFixed(2)})`}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowRefundForm(false)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleRequestRefund}
+                    disabled={refundSubmitting}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  >
+                    {refundSubmitting ? 'Submitting…' : 'Submit request'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

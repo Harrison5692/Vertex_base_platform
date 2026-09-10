@@ -1,8 +1,11 @@
 """
-Staff-facing refund approval workflow. See models/refund_approval.py
-for the design rationale. Requesting is tier-2+ (staff); reviewing
-(approve or deny) is tier-3+ (manager) — a different person than
-whoever filed the request is the whole point of a review gate.
+Refund approval workflow. See models/refund_approval.py for the
+design rationale. Requesting is open to any logged-in account for
+their OWN order (self-service), or staff/above on behalf of anyone
+(e.g. a phone-in claim) — see the ownership check below, same pattern
+as get_transaction/get_account_history. Reviewing (approve or deny)
+stays tier-3+ (manager) only — a different person than whoever filed
+the request is the whole point of a review gate.
 """
 
 from datetime import datetime, timedelta
@@ -30,24 +33,23 @@ REFUND_WINDOW_DAYS = 30
 router = APIRouter(prefix="/refund-approvals", tags=["refund-approvals"])
 
 
-@router.post(
-    "/",
-    response_model=RefundApprovalRead,
-    status_code=201,
-    dependencies=[Depends(require_min_tier(2))],
-)
+@router.post("/", response_model=RefundApprovalRead, status_code=201)
 async def request_refund_approval(
     body: RefundApprovalCreate,
     session: AsyncSession = Depends(get_session),
     current: Account = Depends(get_current_account),
 ):
-    """Staff and above. Logs a request for a manager to review —
-    nothing moves (money or stock) until approved. Rejected outright
-    if the original transaction is more than 30 days old, or already
-    has a pending/approved request against it."""
+    """Any logged-in account can request a refund on their OWN order;
+    staff and above can request one for anyone (a claim taken by
+    phone or in person). Nothing moves (money or stock) until a
+    manager approves. Rejected outright if the original transaction
+    is more than 30 days old, or already has a pending/approved
+    request against it."""
     original = await session.get(Transaction, body.original_transaction_id)
     if not original:
         raise HTTPException(status_code=404, detail="Transaction not found")
+    if current.tier < 2 and current.id != original.account_id:
+        raise HTTPException(status_code=403, detail="Can only request a refund for your own order")
     if original.type != TransactionType.completed:
         raise HTTPException(
             status_code=422, detail="Can only request a refund on a completed sale"

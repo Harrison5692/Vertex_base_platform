@@ -19,6 +19,7 @@ function nextStatus(current) {
 
 function OrderCard({ order, onAdvance, onCancel, busy }) {
   const next = nextStatus(order.fulfillment_status)
+  const [trackingNumber, setTrackingNumber] = useState(order.tracking_number || '')
   const shipTo = [order.shipping_name, order.shipping_line1, order.shipping_line2]
     .filter(Boolean)
     .join(', ')
@@ -51,10 +52,21 @@ function OrderCard({ order, onAdvance, onCancel, busy }) {
 
       <p className="mt-1 text-sm text-gray-500">Total: ${order.total?.toFixed(2)}</p>
 
+      {next === 'shipped' && (
+        <input
+          value={trackingNumber}
+          onChange={(e) => setTrackingNumber(e.target.value)}
+          placeholder="Tracking number (optional)"
+          className="mt-2 w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-brand-500 focus:outline-none"
+        />
+      )}
+
       <div className="mt-3 flex gap-2">
         {next && (
           <button
-            onClick={() => onAdvance(order.id, next)}
+            onClick={() =>
+              onAdvance(order.id, next, next === 'shipped' ? trackingNumber : undefined)
+            }
             disabled={busy}
             className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           >
@@ -90,11 +102,14 @@ export default function OrderQueue() {
 
   useEffect(load, [])
 
-  async function updateStatus(id, status) {
+  async function updateStatus(id, status, trackingNumber) {
     setBusyId(id)
     setError(null)
     try {
-      await api.patch(`/transactions/${id}/fulfillment`, { status })
+      await api.patch(`/transactions/${id}/fulfillment`, {
+        status,
+        ...(trackingNumber ? { tracking_number: trackingNumber } : {}),
+      })
       // Delivered/cancelled leave the queue entirely, so just refetch
       // rather than trying to patch the single row in place.
       load()

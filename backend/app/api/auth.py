@@ -18,6 +18,7 @@ from app.core.security import (
 )
 from app.db.session import get_session
 from app.models.account import Account, AccountCreate, AccountRead
+from app.models.transaction import Transaction
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -62,6 +63,21 @@ async def register(account_in: AccountCreate, session: AsyncSession = Depends(ge
     )
     session.add(account)
     await session.flush()  # assigns account.id without committing/expiring attributes
+
+    # Retail-vertical: attach any prior guest checkout placed under
+    # this exact email — "decide later" whether to make an account
+    # only actually works if those past orders show up once someone
+    # does. guest_email is left as-is on each row (it's the historical
+    # record of how the order was placed); only account_id changes.
+    guest_orders_result = await session.exec(
+        select(Transaction).where(
+            Transaction.account_id.is_(None),
+            Transaction.guest_email == account.email,
+        )
+    )
+    for guest_order in guest_orders_result.all():
+        guest_order.account_id = account.id
+        session.add(guest_order)
 
     await log_audit(
         session,

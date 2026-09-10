@@ -479,6 +479,9 @@ async def refund_transaction(
 
 class FulfillmentUpdateRequest(BaseModel):
     status: FulfillmentStatus
+    # Only meaningful when status is "shipped" — stored on the
+    # transaction and included in the shipped-notification email.
+    tracking_number: str | None = None
 
 
 @router.patch(
@@ -494,13 +497,15 @@ async def update_fulfillment_status(
 ):
     """Staff and above only. Moves an order through
     pending -> processing -> shipped -> delivered, or sideways to
-    cancelled. Cancelling restocks every line item and refunds the
-    full amount automatically (see below) — delivered/cancelled are
-    both terminal after that; this endpoint refuses further changes
-    once there (the append-only-history approach used elsewhere
-    doesn't apply here since this is a status field, not a financial
-    event, but "no more changes once done" is still the safer default
-    than silently allowing it)."""
+    cancelled. Marking shipped optionally records a tracking_number
+    and emails the customer a shipped notification. Cancelling
+    restocks every line item and refunds the full amount automatically
+    (see below) — delivered/cancelled are both terminal after that;
+    this endpoint refuses further changes once there (the
+    append-only-history approach used elsewhere doesn't apply here
+    since this is a status field, not a financial event, but "no more
+    changes once done" is still the safer default than silently
+    allowing it)."""
     transaction = await session.get(Transaction, transaction_id)
     if not transaction:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -546,6 +551,49 @@ async def update_fulfillment_status(
                 transaction.total,
                 "Order cancelled before shipment",
                 current.id,
+            )
+
+    if body.status == FulfillmentStatus.shipped:
+        if body.tracking_number:
+            transaction.tracking_number = body.tracking_number
+
+        if transaction.account_id:
+            shipped_account = await session.get(Account, transaction.account_id)
+            receipt_email = shipped_account.email if shipped_account else None
+        else:
+            receipt_email = transaction.guest_email
+
+        if receipt_email:
+            # Itemized the same way the order-confirmation email is —
+            # a fresh lookup here since this endpoint doesn't already
+            # have the lines/items in scope (unlike create_transaction).
+            lines_result = await session.exec(
+                select(TransactionLine).where(TransactionLine.transaction_id == transaction_id)
+            )
+            shipped_lines = lines_result.all()
+            shipped_item_ids = {line.item_id for line in shipped_lines}
+            shipped_items_result = await session.exec(
+                select(Item).where(Item.id.in_(shipped_item_ids))
+            )
+            shipped_items_by_id = {i.id: i for i in shipped_items_result.all()}
+            line_summary = "\n".join(
+                f"  {line.quantity} x {shipped_items_by_id[line.item_id].name}"
+                for line in shipped_lines
+            )
+            tracking_line = (
+                f"Tracking number: {transaction.tracking_number}\n\n"
+                if transaction.tracking_number
+                else ""
+            )
+            body_text = (
+                f"Your order #{transaction.id} has shipped!\n\n"
+                f"{tracking_line}"
+                f"{line_summary}\n\n"
+                f"Total: ${transaction.total:.2f}"
+            )
+            provider = get_email_provider()
+            await provider.send(
+                to=receipt_email, subject="Your order has shipped", body=body_text
             )
 
     transaction.fulfillment_status = body.status

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Layout from '../components/Layout'
 import { api } from '../lib/api'
+import { useAuth } from '../lib/auth'
 
 const STATUS_STYLE = {
   pending_inspection: 'bg-amber-50 text-amber-700',
@@ -225,7 +226,96 @@ function ResolveLine({ line, itemsById, onResolved }) {
   )
 }
 
+/** Compact panel for a refund request: staff (any tier) can see it,
+ * only a manager (tier 3+) gets the approve/deny controls — notes
+ * are required either way, since that's the actual record of why
+ * this was decided. */
+function RefundApprovalCard({ approval, canReview, onReviewed }) {
+  const [notes, setNotes] = useState('')
+  const [amount, setAmount] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  async function review(approve) {
+    if (!notes) {
+      setError('Notes are required to approve or deny.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await api.patch(`/refund-approvals/${approval.id}/review`, {
+        approve,
+        notes,
+        amount: amount ? Number(amount) : null,
+      })
+      onReviewed()
+    } catch (err) {
+      setError(err?.detail || 'Could not submit the review.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className="rounded-lg border border-gray-100 p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-gray-900">
+          Order #{approval.original_transaction_id}
+        </span>
+        <span className="text-xs text-gray-400">
+          {approval.requested_amount != null
+            ? `$${approval.requested_amount.toFixed(2)} requested`
+            : 'Full amount'}
+        </span>
+      </div>
+      {approval.reason && <p className="mt-1 text-sm text-gray-600">{approval.reason}</p>}
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+
+      {canReview ? (
+        <div className="mt-2 space-y-1.5">
+          <input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Review notes (required)"
+            className="w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-brand-500 focus:outline-none"
+          />
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Amount override (optional)"
+            className="w-full rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-brand-500 focus:outline-none"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => review(true)}
+              disabled={busy}
+              className="rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => review(false)}
+              disabled={busy}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Deny
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-gray-400">Awaiting manager review.</p>
+      )}
+    </li>
+  )
+}
+
 export default function Returns() {
+  const { user } = useAuth()
+  const canReviewRefunds = user && user.tier >= 3
+  const [refundApprovals, setRefundApprovals] = useState([])
   const [items, setItems] = useState([])
   const [pending, setPending] = useState([])
   const [loading, setLoading] = useState(true)
@@ -240,9 +330,17 @@ export default function Returns() {
       .finally(() => setLoading(false))
   }
 
+  function loadRefundApprovals() {
+    api
+      .get('/refund-approvals/?pending_only=true')
+      .then(setRefundApprovals)
+      .catch(() => {})
+  }
+
   useEffect(() => {
     api.get('/items/').then(setItems).catch(() => setItems([]))
     loadPending()
+    loadRefundApprovals()
   }, [])
 
   const itemsById = Object.fromEntries(items.map((it) => [it.id, it]))
@@ -283,6 +381,28 @@ export default function Returns() {
             </ul>
           )}
         </div>
+      </div>
+
+      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-gray-900">Refund requests</h2>
+        <p className="mt-1 text-sm text-gray-500">
+          {canReviewRefunds
+            ? 'Approve or deny — notes are required either way.'
+            : 'Filed by staff or customers, waiting on a manager.'}
+        </p>
+        <ul className="mt-3 space-y-2">
+          {refundApprovals.map((approval) => (
+            <RefundApprovalCard
+              key={approval.id}
+              approval={approval}
+              canReview={canReviewRefunds}
+              onReviewed={loadRefundApprovals}
+            />
+          ))}
+          {refundApprovals.length === 0 && (
+            <p className="text-sm text-gray-400">No refund requests pending.</p>
+          )}
+        </ul>
       </div>
     </Layout>
   )

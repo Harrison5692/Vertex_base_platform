@@ -130,6 +130,11 @@ class TransactionBase(SQLModel):
     # not client-settable at creation) — set once at checkout, then
     # only ever changed via PATCH /transactions/{id}/fulfillment.
     fulfillment_status: FulfillmentStatus | None = Field(default=None, index=True)
+    # Set (optionally) by staff when marking an order shipped — see
+    # PATCH /transactions/{id}/fulfillment. Free text since carriers
+    # and tracking URL formats vary; this template doesn't integrate
+    # any specific carrier's API.
+    tracking_number: str | None = Field(default=None, max_length=200)
 
 
 class Transaction(TransactionBase, table=True):
