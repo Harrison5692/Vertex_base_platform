@@ -49,6 +49,9 @@ export default function Home() {
   const [items, setItems] = useState([])
   const [category, setCategory] = useState(null)
   const [search, setSearch] = useState('')
+  const [sort, setSort] = useState('')
+  const [minPrice, setMinPrice] = useState('')
+  const [maxPrice, setMaxPrice] = useState('')
   const [loading, setLoading] = useState(true)
   const [unreadCount, setUnreadCount] = useState(null)
   const isStaff = user && user.tier >= 2
@@ -68,13 +71,17 @@ export default function Home() {
     const params = new URLSearchParams()
     if (category) params.set('category', category)
     if (search) params.set('q', search)
+    if (minPrice) params.set('min_price', minPrice)
+    if (maxPrice) params.set('max_price', maxPrice)
+    if (sort) params.set('sort', sort)
+    params.set('standalone_only', 'true')
     const qs = params.toString()
     api
       .get(`/items/${qs ? `?${qs}` : ''}`)
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
-  }, [category, search])
+  }, [category, search, minPrice, maxPrice, sort])
 
   const categories = useMemo(
     () => [...new Set(allItems.map((i) => i.category).filter(Boolean))].sort(),
@@ -97,12 +104,40 @@ export default function Home() {
         <CategorySidebar categories={categories} active={category} onSelect={setCategory} />
 
         <div className="flex-1">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search products…"
-            className="mb-4 w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-          />
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search products…"
+              className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+            <input
+              type="number"
+              min="0"
+              value={minPrice}
+              onChange={(e) => setMinPrice(e.target.value)}
+              placeholder="Min $"
+              className="w-24 rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-brand-500 focus:outline-none"
+            />
+            <input
+              type="number"
+              min="0"
+              value={maxPrice}
+              onChange={(e) => setMaxPrice(e.target.value)}
+              placeholder="Max $"
+              className="w-24 rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-brand-500 focus:outline-none"
+            />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-brand-500 focus:outline-none"
+            >
+              <option value="">Sort: featured</option>
+              <option value="newest">Newest</option>
+              <option value="price_asc">Price: low to high</option>
+              <option value="price_desc">Price: high to low</option>
+            </select>
+          </div>
 
           {loading && <p className="text-gray-500">Loading…</p>}
 

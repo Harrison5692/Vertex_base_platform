@@ -50,6 +50,19 @@ class ItemBase(SQLModel):
     # one feature warrants. Null for every ordinary item.
     parent_item_id: int | None = Field(default=None, foreign_key="item.id", index=True)
 
+    # Retail-vertical: product variants (size, color, etc). Optional —
+    # most items have none. A variant is its own full Item row (own
+    # price/stock/sku/image), linked back to the "base" product via
+    # this field; variant_label distinguishes it ("Medium / Black").
+    # Deliberately a SEPARATE field from parent_item_id above, even
+    # though both point back to another Item — a clearance listing and
+    # a variant mean different things, and conflating them under one
+    # field would make it ambiguous which relationship a given row
+    # represents. Null on both a standalone item and a base product
+    # that itself has variants — only the variant rows set this.
+    variant_parent_id: int | None = Field(default=None, foreign_key="item.id", index=True)
+    variant_label: str | None = Field(default=None, max_length=100)
+
 
 class Item(ItemBase, table=True):
     """Actual database table. __table_args__ enforces price/stock at
@@ -101,3 +114,5 @@ class ItemUpdate(SQLModel):
     stock_quantity: int | None = Field(default=None, ge=0)
     low_stock_threshold: int | None = Field(default=None, ge=0)
     duration_minutes: int | None = None
+    variant_parent_id: int | None = None
+    variant_label: str | None = None
