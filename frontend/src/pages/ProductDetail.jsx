@@ -2,25 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import Layout from '../components/Layout'
 import { api } from '../lib/api'
-
-const CART_KEY = 'vertex_cart'
-
-function loadCart() {
-  try {
-    const raw = localStorage.getItem(CART_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveCart(cart) {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart))
-}
+import { useCart } from '../lib/cart'
 
 export default function ProductDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { addToCart } = useCart()
   const [item, setItem] = useState(null)
   const [error, setError] = useState(null)
   const [added, setAdded] = useState(false)
@@ -34,24 +21,8 @@ export default function ProductDetail() {
       .catch(() => setError('Could not load this product.'))
   }, [id])
 
-  function addToCart() {
-    const cart = loadCart()
-    const existing = cart.find((line) => line.item_id === item.id)
-    const next = existing
-      ? cart.map((line) =>
-          line.item_id === item.id ? { ...line, quantity: line.quantity + 1 } : line
-        )
-      : [
-          ...cart,
-          {
-            item_id: item.id,
-            name: item.name,
-            unit_price: item.price ?? 0,
-            quantity: 1,
-            image_url: item.image_url ?? null,
-          },
-        ]
-    saveCart(next)
+  function handleAddToCart() {
+    addToCart(item)
     setAdded(true)
     setTimeout(() => setAdded(false), 1500)
   }
@@ -120,7 +91,7 @@ export default function ProductDetail() {
 
           <div className="mt-6 flex gap-3">
             <button
-              onClick={addToCart}
+              onClick={handleAddToCart}
               disabled={item.price == null || outOfStock}
               className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
             >

@@ -7,19 +7,10 @@ import Layout from '../components/Layout'
 import StripeCardField from '../components/StripeCardField'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
+import { useCart } from '../lib/cart'
 import { useClientConfig } from '../lib/clientConfig'
 
 const PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'other']
-const CART_KEY = 'vertex_cart'
-
-function loadCart() {
-  try {
-    const raw = localStorage.getItem(CART_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
 
 function CartLine({ line, onUpdateQuantity, onRemove }) {
   return (
@@ -109,7 +100,7 @@ export default function Cart() {
   const { user } = useAuth()
   const config = useClientConfig()
   const isStaff = user && user.tier >= 2
-  const [cart, setCart] = useState(loadCart)
+  const { cart, addToCart, updateQuantity, removeFromCart, clearCart } = useCart()
   const [paymentMethod, setPaymentMethod] = useState('card')
   // Tax is config-driven, not customer-editable — an earlier version of
   // this page let ANY caller type their own tax amount, which meant a
@@ -170,40 +161,6 @@ export default function Cart() {
       })
       .catch(() => {}) // Stripe just stays off — same as unconfigured
   }, [])
-
-  useEffect(() => {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart))
-  }, [cart])
-
-  function addToCart(item) {
-    setCart((prev) => {
-      const existing = prev.find((line) => line.item_id === item.id)
-      if (existing) {
-        return prev.map((line) =>
-          line.item_id === item.id ? { ...line, quantity: line.quantity + 1 } : line
-        )
-      }
-      return [
-        ...prev,
-        {
-          item_id: item.id,
-          name: item.name,
-          unit_price: item.price ?? 0,
-          quantity: 1,
-          image_url: item.image_url ?? null,
-        },
-      ]
-    })
-  }
-
-  function updateQuantity(itemId, quantity) {
-    const q = Math.max(1, Number(quantity) || 1)
-    setCart((prev) => prev.map((line) => (line.item_id === itemId ? { ...line, quantity: q } : line)))
-  }
-
-  function removeLine(itemId) {
-    setCart((prev) => prev.filter((line) => line.item_id !== itemId))
-  }
 
   const subtotal = cart.reduce((sum, line) => sum + line.unit_price * line.quantity, 0)
   const configuredTax = subtotal * (config.tax_rate ?? 0)
@@ -277,7 +234,7 @@ export default function Cart() {
       })
       setReceipt(result)
       setReceiptItems(cart)
-      setCart([]) // also clears localStorage via the effect above
+      clearCart()
       setGuestLabel('')
       setGuestEmail('')
       setTaxOverride(null)
@@ -375,7 +332,7 @@ export default function Cart() {
                   key={line.item_id}
                   line={line}
                   onUpdateQuantity={updateQuantity}
-                  onRemove={removeLine}
+                  onRemove={removeFromCart}
                 />
               ))}
             </ul>
