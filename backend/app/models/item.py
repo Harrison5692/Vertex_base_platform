@@ -99,6 +99,12 @@ class ItemRead(ItemBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    # List-endpoint-only, not a real column: for a base product with
+    # variants (own price is null), the cheapest variant's price, so
+    # a storefront card shows a real number ("From $24.00") instead of
+    # nothing or an ambiguous "price on request". Null everywhere else
+    # — a standalone item, a single-item GET, a create response.
+    starting_price: float | None = None
 
 
 class ItemUpdate(SQLModel):

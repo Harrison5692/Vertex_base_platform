@@ -11,7 +11,7 @@ create/update/delete writes an AuditLog row alongside the change.
 from enum import Enum
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import select
+from sqlmodel import func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
@@ -78,7 +78,28 @@ async def list_items(
         query = query.order_by(Item.created_at.desc())
 
     result = await session.exec(query)
-    return result.all()
+    all_items = result.all()
+
+    # A base product with variants (own price is null by design — see
+    # Item.variant_parent_id) shows the cheapest variant's price on
+    # its card, so it displays a real number instead of nothing.
+    needs_starting_price = [item.id for item in all_items if item.price is None]
+    starting_prices: dict[int, float] = {}
+    if needs_starting_price:
+        variant_result = await session.exec(
+            select(Item.variant_parent_id, func.min(Item.price))
+            .where(
+                Item.variant_parent_id.in_(needs_starting_price),
+                Item.price.is_not(None),
+            )
+            .group_by(Item.variant_parent_id)
+        )
+        starting_prices = dict(variant_result.all())
+
+    return [
+        ItemRead(**item.model_dump(), starting_price=starting_prices.get(item.id))
+        for item in all_items
+    ]
 
 
 @router.post("/", response_model=ItemRead, status_code=201, dependencies=[Depends(require_min_tier(2))])

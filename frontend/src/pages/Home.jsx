@@ -19,6 +19,7 @@ function StatCard({ label, value, to }) {
 }
 
 function ProductCard({ item }) {
+  const price = item.price ?? item.starting_price
   return (
     <Link
       to={`/items/${item.id}`}
@@ -31,9 +32,11 @@ function ProductCard({ item }) {
       )}
       <div className="p-3">
         <p className="truncate font-medium text-gray-900">{item.name}</p>
-        <p className="mt-1 text-sm text-gray-500">
-          {item.price != null ? `$${item.price.toFixed(2)}` : 'Price on request'}
-        </p>
+        {price != null && (
+          <p className="mt-1 text-sm text-gray-500">
+            {item.starting_price != null && item.price == null ? 'From ' : ''}${price.toFixed(2)}
+          </p>
+        )}
       </div>
     </Link>
   )

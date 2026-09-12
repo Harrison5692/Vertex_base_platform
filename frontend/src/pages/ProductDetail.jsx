@@ -137,9 +137,11 @@ export default function ProductDetail() {
             </p>
           )}
           <h1 className="mt-1 text-2xl font-semibold text-gray-900">{parentItem?.name}</h1>
-          <p className="mt-3 text-xl font-semibold text-brand-600">
-            {displayed.price != null ? `$${displayed.price.toFixed(2)}` : 'Price on request'}
-          </p>
+          {displayed.price != null && (
+            <p className="mt-3 text-xl font-semibold text-brand-600">
+              ${displayed.price.toFixed(2)}
+            </p>
+          )}
 
           {parentItem?.description && (
             <p className="mt-4 whitespace-pre-line text-sm text-gray-600">
