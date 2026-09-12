@@ -19,14 +19,15 @@ function LogoMark({ appName, logoUrl }) {
 
 /** Full-width banner between the nav header and the page content —
  * background spans the viewport, inner content lines up with the
- * max-w-5xl column everything else on the page uses. */
+ * max-w-7xl column the storefront uses — see Home.jsx's Layout wide
+ * prop. */
 export default function StorefrontBanner() {
   const { user } = useAuth()
   const config = useClientConfig()
 
   return (
     <div className="w-full border-b border-gray-200 bg-white">
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-4">
           <LogoMark appName={config.app_name} logoUrl={config.logo_url} />
           <div>

@@ -9,7 +9,7 @@ const navLinkClass = ({ isActive }) =>
     isActive ? 'bg-brand-50 text-brand-700' : 'text-gray-600 hover:bg-gray-100'
   }`
 
-export default function Layout({ children, banner }) {
+export default function Layout({ children, banner, wide = false }) {
   const { user, logout } = useAuth()
   const config = useClientConfig()
   const [showAuth, setShowAuth] = useState(false)
@@ -81,7 +81,11 @@ export default function Layout({ children, banner }) {
 
       {banner}
 
-      <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      <main className={`mx-auto px-6 py-8 ${wide ? 'max-w-7xl' : 'max-w-5xl'}`}>{children}</main>
+
+      <footer className="mx-auto max-w-7xl px-6 py-6 text-center text-xs text-gray-400">
+        {config.app_name} — site by Vertex Base Builds
+      </footer>
 
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </div>

@@ -92,7 +92,7 @@ export default function Home() {
   )
 
   return (
-    <Layout banner={<StorefrontBanner />}>
+    <Layout banner={<StorefrontBanner />} wide>
       {isStaff && (
         <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <StatCard label="Items" value={allItems.length} to="/items" />
@@ -145,7 +145,7 @@ export default function Home() {
           {loading && <p className="text-gray-500">Loading…</p>}
 
           {!loading && (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {items.map((item) => (
                 <ProductCard key={item.id} item={item} />
               ))}

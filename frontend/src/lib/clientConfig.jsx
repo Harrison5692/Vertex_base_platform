@@ -4,7 +4,7 @@ import { api } from './api'
 const ClientConfigContext = createContext(null)
 
 const DEFAULTS = {
-  app_name: 'Vertex Base',
+  app_name: 'Your Store Name',
   tagline: 'Placeholder intro copy — a sentence or two about the shop goes here. Swap it out in client.config.json.',
   logo_url: null,
   primary_color: '#1a9c8f',
