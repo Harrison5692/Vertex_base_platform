@@ -18,6 +18,16 @@ Usage (from the backend/ directory, or inside the backend container):
 
 import asyncio
 
+# Importing app.main pulls in every router, and transitively every
+# model — including ones this script never touches directly (Account,
+# Transaction, etc). SQLAlchemy needs every model that's referenced by
+# a foreign key to actually be imported into memory before it can
+# resolve relationships between tables; Item.account_id points at
+# "account", so without this import the flush below fails with
+# NoReferencedTableError even though the table exists in the database
+# just fine. The real app never hits this because main.py already
+# imports everything by the time any request comes in.
+import app.main  # noqa: F401
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.db.session import engine
