@@ -107,6 +107,9 @@ class TransactionBase(SQLModel):
     )
 
     subtotal: float | None = Field(default=None)
+    # Retail-vertical: server-computed from client.config.json shipping
+    # tiers (see core/pricing.py). Null for a walk-in POS sale.
+    shipping_amount: float | None = Field(default=None)
     tax_amount: float | None = Field(default=None)
     total: float | None = Field(default=None)
 

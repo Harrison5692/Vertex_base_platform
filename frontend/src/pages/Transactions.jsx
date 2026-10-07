@@ -171,6 +171,12 @@ export default function Transactions() {
                 <span>Subtotal</span>
                 <span>${(selected.subtotal ?? 0).toFixed(2)}</span>
               </div>
+              {selected.shipping_amount != null && (
+                <div className="flex justify-between text-gray-500">
+                  <span>Shipping</span>
+                  <span>${selected.shipping_amount.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-gray-500">
                 <span>Tax</span>
                 <span>${(selected.tax_amount ?? 0).toFixed(2)}</span>

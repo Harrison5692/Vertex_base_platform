@@ -12,6 +12,26 @@ import { useClientConfig } from '../lib/clientConfig'
 
 const PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'other']
 
+// Matches backend app/core/pricing.py US_STATES — the server rejects
+// anything else, so a dropdown avoids "Texas" vs "TX" typos entirely.
+const US_STATES = [
+  'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL',
+  'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE',
+  'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD',
+  'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+]
+
+const EMPTY_SHIPPING = {
+  shipping_name: '',
+  shipping_line1: '',
+  shipping_line2: '',
+  shipping_city: '',
+  shipping_state: '',
+  shipping_postal_code: '',
+  shipping_country: 'US',
+  shipping_phone: '',
+}
+
 function CartLine({ line, onUpdateQuantity, onRemove }) {
   return (
     <li className="flex items-center gap-3 py-3">
@@ -117,16 +137,12 @@ export default function Cart() {
   // Shipping is a retail-vertical concept: a staff-run walk-in sale
   // has no destination, so this only applies to a non-staff (online)
   // checkout and is required there before submitting.
-  const [shipping, setShipping] = useState({
-    shipping_name: '',
-    shipping_line1: '',
-    shipping_line2: '',
-    shipping_city: '',
-    shipping_state: '',
-    shipping_postal_code: '',
-    shipping_country: '',
-    shipping_phone: '',
-  })
+  const [shipping, setShipping] = useState(EMPTY_SHIPPING)
+  // Server-computed subtotal/shipping/tax/total for the current cart
+  // and destination (POST /transactions/quote) — the exact code path
+  // checkout charges with, so what's shown is what's charged.
+  const [rawQuote, setQuote] = useState(null)
+  const [quoteError, setQuoteError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [receipt, setReceipt] = useState(null)
@@ -162,14 +178,48 @@ export default function Cart() {
       .catch(() => {}) // Stripe just stays off — same as unconfigured
   }, [])
 
-  const subtotal = cart.reduce((sum, line) => sum + line.unit_price * line.quantity, 0)
-  const configuredTax = subtotal * (config.tax_rate ?? 0)
-  const tax = taxOverride ?? configuredTax
-  const total = subtotal + tax
-
   // Staff run walk-in POS sales (no destination); anyone else is
   // placing an online order and needs a real shipping address.
   const needsShipping = !isStaff
+  const allowedCountries = config.shipping?.allowed_countries ?? ['US']
+
+  useEffect(() => {
+    if (cart.length === 0) return
+    let cancelled = false
+    api
+      .post('/transactions/quote', {
+        lines: cart.map((line) => ({
+          item_id: line.item_id,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
+        })),
+        online: needsShipping,
+        shipping_country: shipping.shipping_country || null,
+        shipping_state: shipping.shipping_state || null,
+        tax_amount: isStaff && taxOverride != null ? taxOverride : null,
+      })
+      .then((q) => {
+        if (!cancelled) {
+          setQuote(q)
+          setQuoteError(null)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setQuote(null)
+          setQuoteError(err?.detail || 'Could not calculate totals.')
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [cart, needsShipping, isStaff, taxOverride, shipping.shipping_country, shipping.shipping_state])
+
+  // An empty cart shows no quote (rather than resetting state inside
+  // the effect, which the React hooks lint rule flags).
+  const quote = cart.length > 0 ? rawQuote : null
+  const subtotal = quote?.subtotal ?? cart.reduce((sum, l) => sum + l.unit_price * l.quantity, 0)
+  const total = quote?.total
   const shippingComplete =
     !needsShipping ||
     (shipping.shipping_name &&
@@ -222,7 +272,7 @@ export default function Cart() {
         type: 'completed',
         payment_method: paymentMethod,
         guest_label: guestLabel || null,
-        tax_amount: tax,
+        ...(isStaff && taxOverride != null ? { tax_amount: taxOverride } : {}),
         lines: cart.map((line) => ({
           item_id: line.item_id,
           quantity: line.quantity,
@@ -238,16 +288,7 @@ export default function Cart() {
       setGuestLabel('')
       setGuestEmail('')
       setTaxOverride(null)
-      setShipping({
-        shipping_name: '',
-        shipping_line1: '',
-        shipping_line2: '',
-        shipping_city: '',
-        shipping_state: '',
-        shipping_postal_code: '',
-        shipping_country: '',
-        shipping_phone: '',
-      })
+      setShipping(EMPTY_SHIPPING)
     } catch (err) {
       // A declined card (402) gets its actual reason from the server;
       // anything else falls back to the generic message as before.
@@ -289,6 +330,24 @@ export default function Cart() {
               )
             })}
           </ul>
+          <div className="mt-3 space-y-1 border-t border-gray-100 pt-3 text-left text-sm text-gray-500">
+            <div className="flex justify-between">
+              <span>Subtotal</span>
+              <span>${receipt.subtotal.toFixed(2)}</span>
+            </div>
+            {receipt.shipping_amount != null && (
+              <div className="flex justify-between">
+                <span>Shipping</span>
+                <span>
+                  {receipt.shipping_amount === 0 ? 'Free' : `$${receipt.shipping_amount.toFixed(2)}`}
+                </span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span>Tax</span>
+              <span>${receipt.tax_amount.toFixed(2)}</span>
+            </div>
+          </div>
           <div className="mt-5 flex gap-2">
             <Link
               to="/"
@@ -400,12 +459,18 @@ export default function Cart() {
                   placeholder="City"
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
                 />
-                <input
+                <select
                   value={shipping.shipping_state}
                   onChange={(e) => setShipping({ ...shipping, shipping_state: e.target.value })}
-                  placeholder="State"
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-                />
+                >
+                  <option value="">State</option>
+                  {US_STATES.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </select>
                 <input
                   value={shipping.shipping_postal_code}
                   onChange={(e) =>
@@ -414,12 +479,18 @@ export default function Cart() {
                   placeholder="Postal code"
                   className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
                 />
-                <input
+                <select
                   value={shipping.shipping_country}
                   onChange={(e) => setShipping({ ...shipping, shipping_country: e.target.value })}
-                  placeholder="Country"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-                />
+                  disabled={allowedCountries.length === 1}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
+                >
+                  {allowedCountries.map((code) => (
+                    <option key={code} value={code}>
+                      {code === 'US' ? 'United States' : code}
+                    </option>
+                  ))}
+                </select>
               </div>
               <input
                 value={shipping.shipping_phone}
@@ -430,6 +501,7 @@ export default function Cart() {
             </div>
           )}
 
+          {(isStaff || !stripeEnabled) && (
           <label className="mt-3 block text-sm">
             <span className="mb-1 block text-gray-600">Payment method</span>
             <select
@@ -444,6 +516,7 @@ export default function Cart() {
               ))}
             </select>
           </label>
+          )}
 
           {useStripeCharge && stripePromise && (
             <div className="mt-3">
@@ -468,30 +541,46 @@ export default function Cart() {
                 type="number"
                 min="0"
                 step="0.01"
-                value={taxOverride ?? configuredTax.toFixed(2)}
+                value={taxOverride ?? (quote ? quote.tax.toFixed(2) : '')}
                 onChange={(e) => setTaxOverride(Number(e.target.value))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
               />
             </label>
-          ) : (
-            <p className="mt-3 text-xs text-gray-400">
-              Tax calculated at {((config.tax_rate ?? 0) * 100).toFixed(2)}%
-            </p>
-          )}
+          ) : null}
 
           <div className="mt-4 space-y-1 border-t border-gray-100 pt-3 text-sm">
             <div className="flex justify-between text-gray-500">
               <span>Subtotal</span>
               <span>${subtotal.toFixed(2)}</span>
             </div>
+            {needsShipping && (
+              <div className="flex justify-between text-gray-500">
+                <span>Shipping</span>
+                <span>
+                  {quote == null ? '—' : quote.shipping === 0 ? 'Free' : `$${quote.shipping.toFixed(2)}`}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between text-gray-500">
               <span>Tax</span>
-              <span>${tax.toFixed(2)}</span>
+              <span>
+                {quote == null
+                  ? '—'
+                  : needsShipping && !shipping.shipping_state
+                    ? 'Select a state'
+                    : `$${quote.tax.toFixed(2)}`}
+              </span>
             </div>
             <div className="flex justify-between font-semibold text-gray-900">
               <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+              <span>{total == null ? '—' : `$${total.toFixed(2)}`}</span>
             </div>
+            {needsShipping && quote?.free_shipping_remaining != null && (
+              <p className="pt-1 text-xs text-brand-600">
+                Add ${quote.free_shipping_remaining.toFixed(2)} more for free shipping
+              </p>
+            )}
+            {quoteError && <p className="pt-1 text-xs text-red-600">{quoteError}</p>}
           </div>
 
           <button
@@ -499,6 +588,7 @@ export default function Cart() {
             disabled={
               cart.length === 0 ||
               submitting ||
+              quote == null ||
               !shippingComplete ||
               (!user && needsShipping && !guestEmail) ||
               (useStripeCharge && !stripePromise)
@@ -508,7 +598,7 @@ export default function Cart() {
             {submitting
               ? 'Processing…'
               : useStripeCharge
-                ? `Pay $${total.toFixed(2)}`
+                ? `Pay ${total == null ? '' : `$${total.toFixed(2)}`}`
                 : needsShipping
                   ? 'Place order'
                   : 'Complete sale'}

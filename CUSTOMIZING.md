@@ -42,6 +42,38 @@ the database) — only the *label* shown to a human changes here. Add
 as many tier entries as the client actually needs; unused numbers
 just never show up.
 
+### Retail: shipping and tax (also in `client.config.json`)
+
+```json
+"tax_rate": 0.0825,
+"shipping": {
+  "allowed_countries": ["US"],
+  "tiers": [{"under": 10, "rate": 5}, {"under": 50, "rate": 10}],
+  "free_shipping_at": 50
+},
+"online_tax": {
+  "rates_by_state": {"TX": 0.0825},
+  "tax_shipping": true
+}
+```
+
+`tax_rate` applies to in-person (walk-in) sales. Online orders use
+`online_tax`: tax is charged only when the order ships to a state
+listed in `rates_by_state` — list the states the client actually
+collects in (usually just their home state until they cross another
+state's threshold). `tax_shipping` controls whether shipping is part
+of the taxable amount (in Texas it generally is for taxable goods).
+**The client confirms their own tax obligations** — check with the
+state's revenue office (Texas: the Comptroller); this just applies
+what's configured.
+
+Shipping: `free_shipping_at` wins first (`null` = never free), then
+the first tier whose `under` the subtotal is below; above every tier
+pays the highest tier's rate. Price anything that needs a box or
+mailer above the cheapest tier, or that tier won't cover postage.
+All amounts are computed server-side (see `backend/app/core/pricing.py`);
+the browser never decides what a customer pays.
+
 ## 2. Replace the example domain entity
 
 `Item` (`backend/app/models/item.py`, `backend/app/api/items.py`) is
@@ -87,3 +119,23 @@ performance problem, not after.
 Once the client's actual entities exist, update the main README's
 structure section to reflect them instead of the generic `Item`
 example.
+
+## Running the tests
+
+```
+docker compose exec backend pip install pytest pytest-asyncio httpx
+docker compose exec backend pytest -q
+```
+
+Tests use a separate `<your db>_test` database (created automatically,
+migrated with the real migrations, wiped between tests) — your dev
+data is never touched. Run them before every deploy.
+
+## Pinned dependency: sqlmodel < 0.0.45
+
+sqlmodel 0.0.45+ refuses timezone-naive datetimes, and every model
+here uses `datetime.utcnow()` — upgrading breaks every insert. It's
+pinned in `backend/pyproject.toml`. Lifting the pin means switching
+all timestamps to timezone-aware first; do that as its own change,
+with the test suite as the check.
+

@@ -1,6 +1,6 @@
 {
   "app_name": "Your Store Name",
-  "tagline": "Placeholder intro copy — a sentence or two about the shop goes here. Swap it out in client.config.json.",
+  "tagline": "Placeholder intro copy \u2014 a sentence or two about the shop goes here. Swap it out in client.config.json.",
   "logo_url": null,
   "primary_color": "#1a9c8f",
   "tax_rate": 0.0825,
@@ -8,5 +8,27 @@
     "1": "Client",
     "2": "Staff",
     "3": "Manager"
+  },
+  "shipping": {
+    "allowed_countries": [
+      "US"
+    ],
+    "tiers": [
+      {
+        "under": 10,
+        "rate": 5
+      },
+      {
+        "under": 50,
+        "rate": 10
+      }
+    ],
+    "free_shipping_at": 50
+  },
+  "online_tax": {
+    "rates_by_state": {
+      "TX": 0.0825
+    },
+    "tax_shipping": true
   }
 }

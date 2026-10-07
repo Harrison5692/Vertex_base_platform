@@ -27,9 +27,12 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.audit import log_audit
+from app.core.client_config import client_config
+from app.core.config import settings
 from app.core.deps import get_current_account, get_current_account_optional, require_min_tier
 from app.core.email import get_email_provider
 from app.core.payments import get_payment_provider
+from app.core.pricing import PricingError, Totals, compute_totals, validate_destination
 from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
@@ -63,7 +66,62 @@ class TransactionWithLines(TransactionRead):
 
 class TransactionCreateRequest(TransactionCreate):
     lines: list[TransactionLineCreate]
+    # Staff-only override (e.g. a tax-exempt walk-in sale). Ignored for
+    # anyone else — customer tax is always computed server-side.
     tax_amount: float | None = PydanticField(default=None, ge=0)
+
+
+class QuoteLine(BaseModel):
+    item_id: int
+    quantity: int = PydanticField(default=1, ge=1)
+    # Only honored for staff, same as checkout — see _price_lines.
+    unit_price: float | None = PydanticField(default=None, ge=0)
+
+
+class QuoteRequest(BaseModel):
+    lines: list[QuoteLine]
+    online: bool = True
+    shipping_country: str | None = None
+    shipping_state: str | None = None
+    tax_amount: float | None = PydanticField(default=None, ge=0)
+
+
+class QuoteResponse(BaseModel):
+    subtotal: float
+    shipping: float
+    tax: float
+    total: float
+    free_shipping_remaining: float | None
+
+
+def _is_staff(account: Account | None) -> bool:
+    return account is not None and account.tier >= 2
+
+
+def _price_lines(lines, items_by_id: dict[int, Item], is_staff: bool) -> list[float]:
+    """Unit price per line. Staff may set their own (a manual
+    discount at the register); everyone else pays the catalog price
+    as it is RIGHT NOW — never a client-supplied number, which a
+    customer could otherwise just edit to 0.01."""
+    prices = []
+    for line in lines:
+        item = items_by_id[line.item_id]
+        if is_staff and line.unit_price is not None:
+            prices.append(line.unit_price)
+            continue
+        if item.price is None or not item.is_active:
+            raise HTTPException(status_code=422, detail=f"{item.name} isn't available for purchase")
+        prices.append(item.price)
+    return prices
+
+
+def _totals(
+    lines, prices: list[float], *, online: bool, state: str | None, tax_override: float | None
+) -> Totals:
+    subtotal = sum(line.quantity * price for line, price in zip(lines, prices, strict=True))
+    return compute_totals(
+        subtotal, online=online, state=state, config=client_config, tax_override=tax_override
+    )
 
 
 class RefundRequest(BaseModel):
@@ -106,7 +164,7 @@ async def export_transactions(
     writer.writerow(
         [
             "id", "created_at", "type", "account_id", "guest_label", "payment_method",
-            "payment_reference", "subtotal", "tax_amount", "total",
+            "payment_reference", "subtotal", "shipping_amount", "tax_amount", "total",
             "deposit_amount", "balance_due", "related_transaction_id", "created_by", "notes",
         ]
     )
@@ -114,7 +172,8 @@ async def export_transactions(
         writer.writerow(
             [
                 tx.id, tx.created_at.isoformat(), tx.type, tx.account_id, tx.guest_label,
-                tx.payment_method, tx.payment_reference, tx.subtotal, tx.tax_amount, tx.total,
+                tx.payment_method, tx.payment_reference, tx.subtotal, tx.shipping_amount,
+                tx.tax_amount, tx.total,
                 tx.deposit_amount, tx.balance_due, tx.related_transaction_id, tx.created_by,
                 tx.notes,
             ]
@@ -170,6 +229,47 @@ async def get_fulfillment_queue(session: AsyncSession = Depends(get_session)):
     return result.all()
 
 
+@router.post("/quote", response_model=QuoteResponse)
+async def quote_transaction(
+    body: QuoteRequest,
+    session: AsyncSession = Depends(get_session),
+    current_account: Account | None = Depends(get_current_account_optional),
+):
+    """Public — what checkout WILL charge for this cart and
+    destination, computed by the exact same code path as
+    create_transaction. The cart page displays this instead of doing
+    its own math. Read-only, no locking: the real numbers are
+    recomputed at checkout regardless."""
+    if not body.lines:
+        return QuoteResponse(subtotal=0, shipping=0, tax=0, total=0, free_shipping_remaining=None)
+    is_staff = _is_staff(current_account)
+    state = None
+    if body.online and body.shipping_state:
+        try:
+            _, state = validate_destination(
+                body.shipping_country or "US", body.shipping_state, client_config
+            )
+        except PricingError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    item_ids = {line.item_id for line in body.lines}
+    result = await session.exec(select(Item).where(Item.id.in_(item_ids)))
+    items_by_id = {item.id: item for item in result.all()}
+    missing_ids = item_ids - set(items_by_id)
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"Item id(s) not found: {sorted(missing_ids)}")
+
+    prices = _price_lines(body.lines, items_by_id, is_staff)
+    totals = _totals(
+        body.lines,
+        prices,
+        online=body.online,
+        state=state,
+        tax_override=body.tax_amount if is_staff else None,
+    )
+    return QuoteResponse(**totals.__dict__)
+
+
 @router.get("/{transaction_id}", response_model=TransactionWithLines)
 async def get_transaction(
     transaction_id: int,
@@ -207,6 +307,25 @@ async def create_transaction(
     An online order (has a shipping address) placed with no account
     at all requires guest_email, since that's the only way to send a
     receipt; a staff walk-in POS sale needs neither."""
+    is_staff = _is_staff(current_account)
+    if not is_staff:
+        # A customer (logged in or guest) can only ever place their own
+        # completed online order: they can't attach it to someone
+        # else's account, record a "refund", or ring up a walk-in sale
+        # with no shipping and no payment. Staff keep full control.
+        tx_in.account_id = current_account.id if current_account else None
+        if tx_in.type != TransactionType.completed:
+            raise HTTPException(status_code=403, detail="Customers can only place orders")
+        if not tx_in.shipping_line1:
+            raise HTTPException(status_code=422, detail="A shipping address is required")
+        # With real card charging configured, a customer order must
+        # actually be paid by card — otherwise picking "cash" would
+        # create an unpaid order that goes straight into fulfillment.
+        if settings.stripe_secret_key and not (
+            tx_in.payment_method == PaymentMethod.card and tx_in.stripe_payment_method_id
+        ):
+            raise HTTPException(status_code=422, detail="Card payment is required")
+
     account = None
     if tx_in.account_id is not None:
         account = await session.get(Account, tx_in.account_id)
@@ -214,6 +333,13 @@ async def create_transaction(
             raise HTTPException(status_code=404, detail="Account not found")
 
     is_online_order = bool(tx_in.shipping_line1)
+    if is_online_order:
+        try:
+            tx_in.shipping_country, tx_in.shipping_state = validate_destination(
+                tx_in.shipping_country, tx_in.shipping_state, client_config
+            )
+        except PricingError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if is_online_order and account is None and current_account is None and not tx_in.guest_email:
         raise HTTPException(
             status_code=422, detail="An email is required to check out without an account"
@@ -254,9 +380,15 @@ async def create_transaction(
     if insufficient:
         raise HTTPException(status_code=409, detail=f"Not enough stock: {'; '.join(insufficient)}")
 
-    subtotal = sum(line.quantity * line.unit_price for line in tx_in.lines)
-    tax_amount = tx_in.tax_amount or 0.0
-    total = subtotal + tax_amount
+    prices = _price_lines(tx_in.lines, items_by_id, is_staff)
+    totals = _totals(
+        tx_in.lines,
+        prices,
+        online=is_online_order,
+        state=tx_in.shipping_state,
+        tax_override=tx_in.tax_amount if is_staff else None,
+    )
+    total = totals.total
 
     # If this is a real card charge (the storefront's Stripe Elements
     # form supplied a token), attempt it now, against the
@@ -283,9 +415,10 @@ async def create_transaction(
         tx_data,
         update={
             "created_by": current_account.id if current_account else None,
-            "subtotal": subtotal,
-            "tax_amount": tax_amount,
-            "total": total,
+            "subtotal": totals.subtotal,
+            "shipping_amount": totals.shipping if is_online_order else None,
+            "tax_amount": totals.tax,
+            "total": totals.total,
             "payment_reference": payment_reference,
             # An online order (has a shipping address) enters the
             # fulfillment pipeline at "pending"; a staff walk-in POS
@@ -302,13 +435,13 @@ async def create_transaction(
     await session.flush()  # assigns transaction.id without committing/expiring attributes
 
     lines = []
-    for line_in in tx_in.lines:
+    for line_in, unit_price in zip(tx_in.lines, prices, strict=True):
         line = TransactionLine(
             transaction_id=transaction.id,
             item_id=line_in.item_id,
             quantity=line_in.quantity,
-            unit_price=line_in.unit_price,
-            line_total=line_in.quantity * line_in.unit_price,
+            unit_price=unit_price,
+            line_total=round(line_in.quantity * unit_price, 2),
         )
         session.add(line)
         lines.append(line)
@@ -340,6 +473,12 @@ async def create_transaction(
         changed_by=current_account.id if current_account else None,
         new_values={**transaction.model_dump(), "lines": [l.model_dump() for l in lines]},
     )
+    # Captured BEFORE commit: commit expires every loaded object, and
+    # reading item.name afterwards would trigger a lazy load outside
+    # the async context (MissingGreenlet) — crashing the response
+    # AFTER the order was saved and the card charged.
+    item_names = {item_id: item.name for item_id, item in items_by_id.items()}
+    receipt_email = account.email if account is not None else tx_in.guest_email
     await session.commit()
     await session.refresh(transaction)
     for line in lines:
@@ -349,20 +488,22 @@ async def create_transaction(
     # otherwise to guest_email for a guest checkout. A staff walk-in
     # POS sale (guest_label, no account, no guest_email) gets neither,
     # same as before.
-    receipt_email = account.email if account is not None else tx_in.guest_email
     if receipt_email:
         provider = get_email_provider()
-        # items_by_id was already fetched during the stock check above
-        # — reused here rather than querying again.
         line_summary = "\n".join(
-            f"  {line.quantity} x {items_by_id[line.item_id].name} — ${line.line_total:.2f}"
+            f"  {line.quantity} x {item_names[line.item_id]} — ${line.line_total:.2f}"
             for line in lines
         )
         body = (
             f"Thanks for your order — transaction #{transaction.id}\n\n"
             f"{line_summary}\n\n"
             f"Subtotal: ${transaction.subtotal:.2f}\n"
-            f"Tax: ${transaction.tax_amount:.2f}\n"
+            + (
+                f"Shipping: ${transaction.shipping_amount:.2f}\n"
+                if transaction.shipping_amount is not None
+                else ""
+            )
+            + f"Tax: ${transaction.tax_amount:.2f}\n"
             f"Total: ${transaction.total:.2f}"
         )
         await provider.send(to=receipt_email, subject="Order confirmation", body=body)

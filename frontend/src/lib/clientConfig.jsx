@@ -10,6 +10,7 @@ const DEFAULTS = {
   primary_color: '#1a9c8f',
   tax_rate: 0.0825,
   tier_labels: { 1: 'Client', 2: 'Staff', 3: 'Manager' },
+  shipping: { allowed_countries: ['US'] },
 }
 
 export function ClientConfigProvider({ children }) {

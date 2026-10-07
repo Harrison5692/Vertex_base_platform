@@ -18,6 +18,15 @@ _DEFAULTS = {
     "app_name": "Vertex Base",
     "primary_color": "#1a9c8f",
     "tier_labels": {"1": "Client", "2": "Staff", "3": "Manager"},
+    # In-person (walk-in POS) tax rate. Online orders use online_tax.
+    "tax_rate": 0.0,
+    # Retail vertical — see core/pricing.py for exactly how these apply.
+    "shipping": {
+        "allowed_countries": ["US"],
+        "tiers": [{"under": 10, "rate": 5}, {"under": 50, "rate": 10}],
+        "free_shipping_at": 50,
+    },
+    "online_tax": {"rates_by_state": {}, "tax_shipping": True},
 }
 
 
