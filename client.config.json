@@ -30,5 +30,11 @@
       "TX": 0.0825
     },
     "tax_shipping": true
+  },
+  "policies": {
+    "return_window_days": 45,
+    "customer_pays_return_shipping": true,
+    "contact_email": null,
+    "contact_phone": null
   }
 }

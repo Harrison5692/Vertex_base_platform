@@ -51,13 +51,31 @@ async def update_account(
 ):
     if current.tier < 2 and current.id != account_id:
         raise HTTPException(status_code=403, detail="Can only update your own account")
-    # Only staff+ may change someone's tier — a client can't self-promote.
-    if account_in.tier is not None and current.tier < 2:
-        raise HTTPException(status_code=403, detail="Only staff may change account tier")
 
     account = await session.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    # Nobody edits an account above their own level — otherwise staff
+    # could change a manager's email, then reset its password.
+    if account.tier > current.tier:
+        raise HTTPException(
+            status_code=403, detail="You can't edit an account with a higher tier than yours"
+        )
+    # Tier changes: managers (tier 3+) only, never your own, and never
+    # above your own level — so nobody can promote themselves or hand
+    # out more access than they have.
+    if account_in.tier is not None and account_in.tier != account.tier:
+        if current.tier < 3:
+            raise HTTPException(status_code=403, detail="Only managers can change account tiers")
+        if current.id == account.id:
+            raise HTTPException(status_code=403, detail="You can't change your own tier")
+        if account_in.tier > current.tier:
+            raise HTTPException(
+                status_code=403, detail="You can't give an account a higher tier than yours"
+            )
+        if account_in.tier < 1:
+            raise HTTPException(status_code=422, detail="Tier must be 1 or higher")
     old_values = account.model_dump(exclude={"hashed_password"})
     for field, value in account_in.model_dump(exclude_unset=True).items():
         setattr(account, field, value)
@@ -92,6 +110,10 @@ async def deactivate_account(
     account = await session.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    if account.tier > current.tier:
+        raise HTTPException(
+            status_code=403, detail="You can't deactivate an account with a higher tier than yours"
+        )
 
     account.is_active = False
     session.add(account)

@@ -83,6 +83,25 @@ shipping and tax, so shipping tiers and the free-shipping threshold use
 the discounted amount. Codes are deactivated, never deleted, so past
 orders keep showing the code they used.
 
+### Retail: return policy and contact
+
+```json
+"policies": {
+  "return_window_days": 45,
+  "customer_pays_return_shipping": true,
+  "contact_email": "support@yourstore.com",
+  "contact_phone": null
+}
+```
+
+Drives the Returns & refunds and Contact pages (linked in the site
+footer) and the footer of order and shipping emails.
+`return_window_days` is also what customer refund requests are
+checked against, so the page never promises something the system
+refuses. Refunds always need a manager: staff cancelling an unshipped
+order restocks it and files a refund request for review; a manager
+cancelling refunds immediately.
+
 ## 2. Replace the example domain entity
 
 `Item` (`backend/app/models/item.py`, `backend/app/api/items.py`) is

@@ -30,6 +30,14 @@ _DEFAULTS = {
         "free_shipping_at": 50,
     },
     "online_tax": {"rates_by_state": {}, "tax_shipping": True},
+    # Shown on the Return policy / Contact pages and in order emails;
+    # return_window_days is also what refund requests are checked against.
+    "policies": {
+        "return_window_days": 30,
+        "customer_pays_return_shipping": True,
+        "contact_email": None,
+        "contact_phone": None,
+    },
 }
 
 

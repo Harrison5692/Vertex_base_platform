@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useClientConfig } from '../lib/clientConfig'
 import AuthModal from './AuthModal'
@@ -89,6 +89,14 @@ export default function Layout({ children, banner, wide = false }) {
       <main className={`mx-auto px-6 py-8 ${wide ? 'max-w-7xl' : 'max-w-5xl'}`}>{children}</main>
 
       <footer className="mx-auto max-w-7xl px-6 py-6 text-center text-xs text-gray-400">
+        <nav className="mb-2 flex justify-center gap-4 text-sm">
+          <Link to="/return-policy" className="text-gray-500 hover:text-gray-700 hover:underline">
+            Returns &amp; refunds
+          </Link>
+          <Link to="/contact" className="text-gray-500 hover:text-gray-700 hover:underline">
+            Contact
+          </Link>
+        </nav>
         {config.app_name} — site by Vertex Base Builds
       </footer>
 

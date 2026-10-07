@@ -11,6 +11,7 @@ const DEFAULTS = {
   tax_rate: 0.0825,
   tier_labels: { 1: 'Client', 2: 'Staff', 3: 'Manager' },
   shipping: { allowed_countries: ['US'] },
+  policies: { return_window_days: 30, customer_pays_return_shipping: true },
 }
 
 export function ClientConfigProvider({ children }) {

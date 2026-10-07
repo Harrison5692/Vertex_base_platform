@@ -4,6 +4,7 @@ import { AuthProvider } from './lib/auth'
 import { ClientConfigProvider } from './lib/clientConfig'
 import Accounts from './pages/Accounts'
 import Cart from './pages/Cart'
+import Contact from './pages/Contact'
 import DiscountCodes from './pages/DiscountCodes'
 import Home from './pages/Home'
 import Items from './pages/Items'
@@ -11,6 +12,7 @@ import Notifications from './pages/Notifications'
 import OrderQueue from './pages/OrderQueue'
 import Returns from './pages/Returns'
 import ProductDetail from './pages/ProductDetail'
+import ReturnPolicy from './pages/ReturnPolicy'
 import Transactions from './pages/Transactions'
 
 // A dedicated /login page still makes sense for a business type with
@@ -34,6 +36,8 @@ export default function App() {
           <Route path="/items" element={<Items />} />
           <Route path="/items/:id" element={<ProductDetail />} />
           <Route path="/cart" element={<Cart />} />
+          <Route path="/return-policy" element={<ReturnPolicy />} />
+          <Route path="/contact" element={<Contact />} />
           <Route
             path="/transactions"
             element={

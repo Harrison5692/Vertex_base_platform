@@ -16,6 +16,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.transactions import _has_existing_refund, _issue_refund
 from app.core.audit import log_audit
+from app.core.client_config import client_config
 from app.core.deps import get_current_account, require_min_tier
 from app.db.session import get_session
 from app.models.account import Account
@@ -28,7 +29,10 @@ from app.models.refund_approval import (
 )
 from app.models.transaction import Transaction, TransactionType
 
-REFUND_WINDOW_DAYS = 30
+def _refund_window_days() -> int:
+    """The same number the Return policy page shows customers — one
+    setting, so the page and what's enforced can never disagree."""
+    return int(client_config.get("policies", {}).get("return_window_days", 30))
 
 router = APIRouter(prefix="/refund-approvals", tags=["refund-approvals"])
 
@@ -56,10 +60,10 @@ async def request_refund_approval(
         )
     if await _has_existing_refund(session, original.id):
         raise HTTPException(status_code=409, detail="This transaction has already been refunded")
-    if datetime.utcnow() - original.created_at > timedelta(days=REFUND_WINDOW_DAYS):
+    if datetime.utcnow() - original.created_at > timedelta(days=_refund_window_days()):
         raise HTTPException(
             status_code=422,
-            detail=f"This sale is outside the {REFUND_WINDOW_DAYS}-day refund window",
+            detail=f"This sale is outside the {_refund_window_days()}-day refund window",
         )
 
     existing_result = await session.exec(

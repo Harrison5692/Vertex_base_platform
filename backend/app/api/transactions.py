@@ -45,6 +45,7 @@ from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
 from app.models.item import Item
+from app.models.refund_approval import RefundApproval, RefundApprovalStatus
 from app.models.transaction import (
     FulfillmentStatus,
     PaymentMethod,
@@ -149,6 +150,18 @@ def _totals(
         tax_override=tax_override,
         discount=discount,
     )
+
+
+def _policy_footer() -> str:
+    """Appended to customer emails: how to reach the store and the
+    return window, so nobody has to hunt for either."""
+    policies = client_config.get("policies", {})
+    days = policies.get("return_window_days", 30)
+    lines = [f"\n\nReturns accepted within {days} days of purchase."]
+    contact = policies.get("contact_email") or policies.get("contact_phone")
+    if contact:
+        lines.append(f"Questions or returns: {contact}")
+    return "\n".join(lines)
 
 
 def _field_error(field: str, message: str) -> HTTPException:
@@ -580,7 +593,9 @@ async def create_transaction(
             + f"Tax: ${transaction.tax_amount:.2f}\n"
             f"Total: ${transaction.total:.2f}"
         )
-        await provider.send(to=receipt_email, subject="Order confirmation", body=body)
+        await provider.send(
+            to=receipt_email, subject="Order confirmation", body=body + _policy_footer()
+        )
 
     return TransactionWithLines(**transaction.model_dump(), lines=lines)
 
@@ -759,14 +774,36 @@ async def update_fulfillment_status(
                 order_item.stock_quantity += order_line.quantity
                 session.add(order_item)
 
+        # No money goes back without a manager's sign-off. A manager
+        # cancelling IS that sign-off, so the refund goes through now;
+        # staff cancelling files a pending refund request for a
+        # manager to review (restock above still happens immediately —
+        # the goods never left).
         if not await _has_existing_refund(session, transaction_id) and (transaction.total or 0) > 0:
-            await _issue_refund(
-                session,
-                transaction,
-                transaction.total,
-                "Order cancelled before shipment",
-                current.id,
-            )
+            if current.tier >= 3:
+                await _issue_refund(
+                    session,
+                    transaction,
+                    transaction.total,
+                    "Order cancelled before shipment",
+                    current.id,
+                )
+            else:
+                pending = await session.exec(
+                    select(RefundApproval).where(
+                        RefundApproval.original_transaction_id == transaction_id,
+                        RefundApproval.status == RefundApprovalStatus.pending,
+                    )
+                )
+                if pending.first() is None:
+                    session.add(
+                        RefundApproval(
+                            original_transaction_id=transaction_id,
+                            reason="Order cancelled before shipment (cancelled by staff)",
+                            requested_amount=transaction.total,
+                            requested_by=current.id,
+                        )
+                    )
 
     if body.status == FulfillmentStatus.shipped:
         if body.tracking_number:
@@ -808,7 +845,9 @@ async def update_fulfillment_status(
             )
             provider = get_email_provider()
             await provider.send(
-                to=receipt_email, subject="Your order has shipped", body=body_text
+                to=receipt_email,
+                subject="Your order has shipped",
+                body=body_text + _policy_footer(),
             )
 
     transaction.fulfillment_status = body.status
