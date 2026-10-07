@@ -10,7 +10,10 @@ the values in two places.
 """
 
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger("app.config")
 
 _CONFIG_PATH = Path(__file__).resolve().parents[3] / "client.config.json"
 
@@ -31,13 +34,24 @@ _DEFAULTS = {
 
 
 def load_client_config() -> dict:
+    # Falling back to defaults silently once hid a missing Docker mount
+    # (no tax charged, branding ignored) — so it's always logged now.
     if not _CONFIG_PATH.exists():
+        logger.warning(
+            "client.config.json NOT FOUND at %s — running on built-in defaults "
+            "(no online tax, default branding). Check the docker-compose mount.",
+            _CONFIG_PATH,
+        )
         return _DEFAULTS
     try:
         with open(_CONFIG_PATH) as f:
             data = json.load(f)
+        logger.info("Loaded client config from %s", _CONFIG_PATH)
         return {**_DEFAULTS, **data}
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning(
+            "client.config.json at %s could not be read (%s) — using defaults", _CONFIG_PATH, exc
+        )
         return _DEFAULTS
 
 

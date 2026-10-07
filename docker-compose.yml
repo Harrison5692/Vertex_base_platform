@@ -28,6 +28,9 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
+      # client.config.json lives at the repo root, outside ./backend —
+      # mounted where core/client_config.py looks for it (/app's parent).
+      - ./client.config.json:/client.config.json:ro
 
   frontend:
     build: ./frontend
