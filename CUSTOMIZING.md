@@ -74,6 +74,15 @@ mailer above the cheapest tier, or that tier won't cover postage.
 All amounts are computed server-side (see `backend/app/core/pricing.py`);
 the browser never decides what a customer pays.
 
+### Retail: discount codes
+
+Managers (tier 3+) create codes under **Discounts** in the nav: percent
+or fixed-dollar off, with optional minimum order, expiry date and total
+use limit. The discount comes off the merchandise subtotal before
+shipping and tax, so shipping tiers and the free-shipping threshold use
+the discounted amount. Codes are deactivated, never deleted, so past
+orders keep showing the code they used.
+
 ## 2. Replace the example domain entity
 
 `Item` (`backend/app/models/item.py`, `backend/app/api/items.py`) is

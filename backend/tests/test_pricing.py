@@ -8,6 +8,7 @@ from app.core.pricing import (
     shipping_for_subtotal,
     validate_destination,
     validate_postal_code,
+    validate_street_line,
 )
 
 CONFIG = {
@@ -119,3 +120,31 @@ def test_valid_zip(code):
 def test_invalid_zip(code):
     with pytest.raises(PricingError):
         validate_postal_code("US", code)
+
+
+def test_discount_comes_off_before_shipping_and_tax():
+    # $60 cart, $20 off -> $40 net: back in the $10 tier, tax on 40 + 10.
+    t = compute_totals(60.00, online=True, state="TX", config=CONFIG, discount=20)
+    assert t.subtotal == 60.0
+    assert t.discount == 20.0
+    assert t.shipping == 10.0
+    assert t.tax == 4.13  # (40 + 10) * 0.0825 = 4.125 -> 4.13
+    assert t.total == 54.13
+    assert t.free_shipping_remaining == 10.0
+
+
+def test_discount_never_exceeds_subtotal():
+    t = compute_totals(6.00, online=True, state="CA", config=CONFIG, discount=10)
+    assert t.discount == 6.0
+    assert t.total == 5.0  # free merch, still pays the $5 tier shipping
+
+
+@pytest.mark.parametrize("line", ["123 Main St", "PO Box 9", "1 Infinite Loop"])
+def test_street_line_with_number_ok(line):
+    assert validate_street_line(line) == line
+
+
+@pytest.mark.parametrize("line", ["John", "my house", "  "])
+def test_street_line_without_number_rejected(line):
+    with pytest.raises(PricingError):
+        validate_street_line(line)

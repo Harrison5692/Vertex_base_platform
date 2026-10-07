@@ -13,6 +13,14 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: 5173,
+      // Docker on Windows/Mac doesn't forward host file-change events
+      // into the container, so Vite never notices edits. Polling makes
+      // it check for changes itself. Enabled only via docker-compose
+      // (VITE_USE_POLLING=true) — native runs keep the faster default.
+      watch: {
+        usePolling: env.VITE_USE_POLLING === 'true',
+        interval: 1000,
+      },
       proxy: {
         '/api': {
           target: backendTarget,

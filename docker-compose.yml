@@ -39,6 +39,7 @@ services:
       - backend
     environment:
       VITE_BACKEND_TARGET: http://backend:8000
+      VITE_USE_POLLING: "true"
     ports:
       - "127.0.0.1:5173:5173"
     volumes:

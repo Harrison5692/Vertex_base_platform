@@ -7,6 +7,7 @@ from app.api import (
     auth,
     cart,
     config,
+    discount_codes,
     items,
     newsletter,
     notifications,
@@ -39,6 +40,7 @@ app.include_router(payments.router)
 app.include_router(returns.router)
 app.include_router(refund_approvals.router)
 app.include_router(cart.router)
+app.include_router(discount_codes.router)
 
 
 @app.get("/health")

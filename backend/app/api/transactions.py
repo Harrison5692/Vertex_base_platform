@@ -29,6 +29,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core.audit import log_audit
 from app.core.client_config import client_config
 from app.core.config import settings
+from app.core.discounts import DiscountError, resolve_discount
 from app.core.deps import get_current_account, get_current_account_optional, require_min_tier
 from app.core.email import get_email_provider
 from app.core.payments import get_payment_provider
@@ -38,6 +39,7 @@ from app.core.pricing import (
     compute_totals,
     validate_destination,
     validate_postal_code,
+    validate_street_line,
 )
 from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
@@ -90,10 +92,15 @@ class QuoteRequest(BaseModel):
     shipping_country: str | None = None
     shipping_state: str | None = None
     tax_amount: float | None = PydanticField(default=None, ge=0)
+    discount_code: str | None = None
 
 
 class QuoteResponse(BaseModel):
     subtotal: float
+    discount: float
+    # Set when a code was entered but doesn't apply — the quote still
+    # returns full-price totals, and the cart shows this under the box.
+    discount_code_error: str | None = None
     shipping: float
     tax: float
     total: float
@@ -121,12 +128,34 @@ def _price_lines(lines, items_by_id: dict[int, Item], is_staff: bool) -> list[fl
     return prices
 
 
+def _subtotal(lines, prices: list[float]) -> float:
+    return sum(line.quantity * price for line, price in zip(lines, prices, strict=True))
+
+
 def _totals(
-    lines, prices: list[float], *, online: bool, state: str | None, tax_override: float | None
+    lines,
+    prices: list[float],
+    *,
+    online: bool,
+    state: str | None,
+    tax_override: float | None,
+    discount: float = 0.0,
 ) -> Totals:
-    subtotal = sum(line.quantity * price for line, price in zip(lines, prices, strict=True))
     return compute_totals(
-        subtotal, online=online, state=state, config=client_config, tax_override=tax_override
+        _subtotal(lines, prices),
+        online=online,
+        state=state,
+        config=client_config,
+        tax_override=tax_override,
+        discount=discount,
+    )
+
+
+def _field_error(field: str, message: str) -> HTTPException:
+    """Same shape FastAPI uses for its own validation errors, so the
+    frontend outlines that exact field (see lib/api.js fieldErrors)."""
+    return HTTPException(
+        status_code=422, detail=[{"loc": ["body", field], "msg": message, "type": "value_error"}]
     )
 
 
@@ -170,7 +199,8 @@ async def export_transactions(
     writer.writerow(
         [
             "id", "created_at", "type", "account_id", "guest_label", "payment_method",
-            "payment_reference", "subtotal", "shipping_amount", "tax_amount", "total",
+            "payment_reference", "subtotal", "discount_code", "discount_amount",
+            "shipping_amount", "tax_amount", "total",
             "deposit_amount", "balance_due", "related_transaction_id", "created_by", "notes",
         ]
     )
@@ -178,7 +208,8 @@ async def export_transactions(
         writer.writerow(
             [
                 tx.id, tx.created_at.isoformat(), tx.type, tx.account_id, tx.guest_label,
-                tx.payment_method, tx.payment_reference, tx.subtotal, tx.shipping_amount,
+                tx.payment_method, tx.payment_reference, tx.subtotal, tx.discount_code,
+                tx.discount_amount, tx.shipping_amount,
                 tx.tax_amount, tx.total,
                 tx.deposit_amount, tx.balance_due, tx.related_transaction_id, tx.created_by,
                 tx.notes,
@@ -247,7 +278,9 @@ async def quote_transaction(
     its own math. Read-only, no locking: the real numbers are
     recomputed at checkout regardless."""
     if not body.lines:
-        return QuoteResponse(subtotal=0, shipping=0, tax=0, total=0, free_shipping_remaining=None)
+        return QuoteResponse(
+            subtotal=0, discount=0, shipping=0, tax=0, total=0, free_shipping_remaining=None
+        )
     is_staff = _is_staff(current_account)
     state = None
     if body.online and body.shipping_state:
@@ -266,14 +299,22 @@ async def quote_transaction(
         raise HTTPException(status_code=404, detail=f"Item id(s) not found: {sorted(missing_ids)}")
 
     prices = _price_lines(body.lines, items_by_id, is_staff)
+    discount, discount_error = 0.0, None
+    try:
+        _, discount = await resolve_discount(
+            session, body.discount_code, _subtotal(body.lines, prices), lock=False
+        )
+    except DiscountError as exc:
+        discount_error = str(exc)
     totals = _totals(
         body.lines,
         prices,
         online=body.online,
         state=state,
         tax_override=body.tax_amount if is_staff else None,
+        discount=discount,
     )
-    return QuoteResponse(**totals.__dict__)
+    return QuoteResponse(**totals.__dict__, discount_code_error=discount_error)
 
 
 @router.get("/{transaction_id}", response_model=TransactionWithLines)
@@ -347,6 +388,7 @@ async def create_transaction(
             tx_in.shipping_postal_code = validate_postal_code(
                 tx_in.shipping_country, tx_in.shipping_postal_code
             )
+            tx_in.shipping_line1 = validate_street_line(tx_in.shipping_line1)
         except PricingError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     if is_online_order and account is None and current_account is None and not tx_in.guest_email:
@@ -390,12 +432,19 @@ async def create_transaction(
         raise HTTPException(status_code=409, detail=f"Not enough stock: {'; '.join(insufficient)}")
 
     prices = _price_lines(tx_in.lines, items_by_id, is_staff)
+    try:
+        discount_row, discount = await resolve_discount(
+            session, tx_in.discount_code, _subtotal(tx_in.lines, prices), lock=True
+        )
+    except DiscountError as exc:
+        raise _field_error("discount_code", str(exc)) from exc
     totals = _totals(
         tx_in.lines,
         prices,
         online=is_online_order,
         state=tx_in.shipping_state,
         tax_override=tx_in.tax_amount if is_staff else None,
+        discount=discount,
     )
     total = totals.total
 
@@ -419,13 +468,17 @@ async def create_transaction(
             raise HTTPException(status_code=402, detail=result.message or "Payment failed.")
         payment_reference = result.reference
 
-    tx_data = tx_in.model_dump(exclude={"lines", "tax_amount", "stripe_payment_method_id"})
+    tx_data = tx_in.model_dump(
+        exclude={"lines", "tax_amount", "stripe_payment_method_id", "discount_code"}
+    )
     transaction = Transaction.model_validate(
         tx_data,
         update={
             "created_by": current_account.id if current_account else None,
             "subtotal": totals.subtotal,
             "shipping_amount": totals.shipping if is_online_order else None,
+            "discount_code": discount_row.code if discount_row else None,
+            "discount_amount": totals.discount if discount_row else None,
             "tax_amount": totals.tax,
             "total": totals.total,
             "payment_reference": payment_reference,
@@ -474,6 +527,13 @@ async def create_transaction(
             current_account_id=current_account.id if current_account else None,
         )
 
+    # Same database transaction as the order itself (row locked by
+    # resolve_discount above): if anything below fails, the use isn't
+    # counted either.
+    if discount_row is not None:
+        discount_row.uses_count += 1
+        session.add(discount_row)
+
     await log_audit(
         session,
         table_name="transaction",
@@ -507,6 +567,11 @@ async def create_transaction(
             f"Thanks for your order — transaction #{transaction.id}\n\n"
             f"{line_summary}\n\n"
             f"Subtotal: ${transaction.subtotal:.2f}\n"
+            + (
+                f"Discount ({transaction.discount_code}): -${transaction.discount_amount:.2f}\n"
+                if transaction.discount_amount
+                else ""
+            )
             + (
                 f"Shipping: ${transaction.shipping_amount:.2f}\n"
                 if transaction.shipping_amount is not None

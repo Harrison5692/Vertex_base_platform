@@ -17,6 +17,7 @@ from app.models.item import Item  # noqa: F401
 from app.models.notification import Notification  # noqa: F401
 from app.models.transaction import Transaction  # noqa: F401
 from app.models.transaction_line import TransactionLine  # noqa: F401
+from app.models.discount_code import DiscountCode  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

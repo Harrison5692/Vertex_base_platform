@@ -110,6 +110,12 @@ class TransactionBase(SQLModel):
     # Retail-vertical: server-computed from client.config.json shipping
     # tiers (see core/pricing.py). Null for a walk-in POS sale.
     shipping_amount: float | None = Field(default=None)
+    # Retail-vertical: promo code applied at checkout (see
+    # models/discount_code.py). The code string is copied here so the
+    # receipt stays readable even if the code is later deactivated;
+    # discount_amount is the dollars actually taken off the subtotal.
+    discount_code: str | None = Field(default=None, max_length=50)
+    discount_amount: float | None = Field(default=None)
     tax_amount: float | None = Field(default=None)
     total: float | None = Field(default=None)
 
@@ -187,6 +193,9 @@ class TransactionCreate(SQLModel):
     # sale recording an already-swiped card leaves this null and
     # behaves exactly as it always has.
     stripe_payment_method_id: str | None = None
+
+    # Promo code typed at checkout — validated and priced server-side.
+    discount_code: str | None = None
 
 
 class TransactionRead(TransactionBase):

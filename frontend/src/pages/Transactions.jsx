@@ -171,6 +171,12 @@ export default function Transactions() {
                 <span>Subtotal</span>
                 <span>${(selected.subtotal ?? 0).toFixed(2)}</span>
               </div>
+              {selected.discount_amount > 0 && (
+                <div className="flex justify-between text-green-700">
+                  <span>Discount ({selected.discount_code})</span>
+                  <span>−${selected.discount_amount.toFixed(2)}</span>
+                </div>
+              )}
               {selected.shipping_amount != null && (
                 <div className="flex justify-between text-gray-500">
                   <span>Shipping</span>

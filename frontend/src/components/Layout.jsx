@@ -55,6 +55,11 @@ export default function Layout({ children, banner, wide = false }) {
                 Returns
               </NavLink>
             )}
+            {user && user.tier >= 3 && (
+              <NavLink to="/discount-codes" className={navLinkClass}>
+                Discounts
+              </NavLink>
+            )}
           </nav>
         </div>
         <div className="flex items-center gap-3">

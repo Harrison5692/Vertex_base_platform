@@ -31,12 +31,15 @@ const FIELD_LABELS = {
   shipping_phone: 'Phone',
   email: 'Email',
   password: 'Password',
+  discount_code: 'Discount code',
 }
 
 function friendlyFieldMessage(field, msg = '') {
   if (field === 'guest_email' || field === 'email') return 'Enter a valid email address.'
+  // Messages we write ourselves are already full sentences — show as-is.
+  if (field === 'discount_code') return msg
   const label = FIELD_LABELS[field] || field.replace(/_/g, ' ')
-  return `${label}: ${msg}.`
+  return `${label}: ${msg.replace(/\.$/, '')}.`
 }
 
 async function request(path, options = {}) {

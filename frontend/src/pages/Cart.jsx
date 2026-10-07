@@ -174,6 +174,10 @@ export default function Cart() {
   // under each input and as one summary line — so a customer always
   // knows exactly which box to fix, instead of a greyed-out button.
   const [fieldErrors, setFieldErrors] = useState({})
+  // Promo code: codeInput is what's typed, appliedCode is what's sent
+  // with the quote/checkout once the customer presses Apply.
+  const [codeInput, setCodeInput] = useState('')
+  const [appliedCode, setAppliedCode] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [receipt, setReceipt] = useState(null)
@@ -228,6 +232,7 @@ export default function Cart() {
         shipping_country: shipping.shipping_country || null,
         shipping_state: shipping.shipping_state || null,
         tax_amount: isStaff && taxOverride != null ? taxOverride : null,
+        discount_code: appliedCode,
       })
       .then((q) => {
         if (!cancelled) {
@@ -244,7 +249,15 @@ export default function Cart() {
     return () => {
       cancelled = true
     }
-  }, [cart, needsShipping, isStaff, taxOverride, shipping.shipping_country, shipping.shipping_state])
+  }, [
+    cart,
+    needsShipping,
+    isStaff,
+    taxOverride,
+    appliedCode,
+    shipping.shipping_country,
+    shipping.shipping_state,
+  ])
 
   // An empty cart shows no quote (rather than resetting state inside
   // the effect, which the React hooks lint rule flags).
@@ -253,6 +266,11 @@ export default function Cart() {
   const total = quote?.total
   function validateCheckout() {
     const errors = {}
+    // Don't let someone check out believing a code applied when it
+    // didn't — make them fix or clear it first.
+    if (appliedCode && quote?.discount_code_error) {
+      errors.discount_code = `${quote.discount_code_error} Remove it or try another code.`
+    }
     if (needsShipping) {
       if (!user) {
         if (!guestEmail.trim()) errors.guest_email = 'Email is required for your receipt.'
@@ -261,6 +279,9 @@ export default function Cart() {
       }
       for (const [field, label] of REQUIRED_SHIPPING) {
         if (!String(shipping[field] ?? '').trim()) errors[field] = `${label} is required.`
+      }
+      if (!errors.shipping_line1 && !/\d/.test(shipping.shipping_line1)) {
+        errors.shipping_line1 = 'Include the street number (like 123 Main St).'
       }
       if (
         !errors.shipping_postal_code &&
@@ -336,6 +357,7 @@ export default function Cart() {
         ...(needsShipping ? shipping : {}),
         ...(!user && guestEmail ? { guest_email: guestEmail } : {}),
         ...(stripePaymentMethodId ? { stripe_payment_method_id: stripePaymentMethodId } : {}),
+        ...(appliedCode ? { discount_code: appliedCode } : {}),
       })
       setReceipt(result)
       setReceiptItems(cart)
@@ -344,6 +366,8 @@ export default function Cart() {
       setGuestEmail('')
       setTaxOverride(null)
       setShipping(EMPTY_SHIPPING)
+      setCodeInput('')
+      setAppliedCode(null)
     } catch (err) {
       // A declined card (402) gets its actual reason from the server;
       // anything else falls back to the generic message as before.
@@ -397,6 +421,12 @@ export default function Cart() {
               <span>Subtotal</span>
               <span>${receipt.subtotal.toFixed(2)}</span>
             </div>
+            {receipt.discount_amount > 0 && (
+              <div className="flex justify-between text-green-700">
+                <span>Discount ({receipt.discount_code})</span>
+                <span>−${receipt.discount_amount.toFixed(2)}</span>
+              </div>
+            )}
             {receipt.shipping_amount != null && (
               <div className="flex justify-between">
                 <span>Shipping</span>
@@ -638,11 +668,64 @@ export default function Cart() {
             </label>
           ) : null}
 
+          <div className="mt-4 border-t border-gray-100 pt-3">
+            <label className="block text-sm">
+              <span className="mb-1 block text-gray-600">Discount code</span>
+              <div className="flex gap-2">
+                <input
+                  value={codeInput}
+                  onChange={(e) => {
+                    setCodeInput(e.target.value)
+                    if (fieldErrors.discount_code) clearFieldError('discount_code')
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') setAppliedCode(codeInput.trim() || null)
+                  }}
+                  placeholder="Enter code"
+                  disabled={!!appliedCode}
+                  className={`${inputClass(
+                    fieldErrors.discount_code || (appliedCode && quote?.discount_code_error),
+                  )} uppercase`}
+                />
+                {appliedCode ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAppliedCode(null)
+                      setCodeInput('')
+                    }}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    Remove
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setAppliedCode(codeInput.trim() || null)}
+                    disabled={!codeInput.trim()}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Apply
+                  </button>
+                )}
+              </div>
+            </label>
+            <FieldError
+              message={fieldErrors.discount_code || (appliedCode && quote?.discount_code_error)}
+            />
+          </div>
+
           <div className="mt-4 space-y-1 border-t border-gray-100 pt-3 text-sm">
             <div className="flex justify-between text-gray-500">
               <span>Subtotal</span>
               <span>${subtotal.toFixed(2)}</span>
             </div>
+            {quote?.discount > 0 && (
+              <div className="flex justify-between text-green-700">
+                <span>Discount ({appliedCode?.toUpperCase()})</span>
+                <span>−${quote.discount.toFixed(2)}</span>
+              </div>
+            )}
             {needsShipping && (
               <div className="flex justify-between text-gray-500">
                 <span>Shipping</span>

@@ -4,6 +4,7 @@ import { AuthProvider } from './lib/auth'
 import { ClientConfigProvider } from './lib/clientConfig'
 import Accounts from './pages/Accounts'
 import Cart from './pages/Cart'
+import DiscountCodes from './pages/DiscountCodes'
 import Home from './pages/Home'
 import Items from './pages/Items'
 import Notifications from './pages/Notifications'
@@ -46,6 +47,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <Notifications />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/discount-codes"
+            element={
+              <ProtectedRoute minTier={3}>
+                <DiscountCodes />
               </ProtectedRoute>
             }
           />

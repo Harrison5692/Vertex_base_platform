@@ -67,7 +67,8 @@ class PricingError(ValueError):
 
 @dataclass(frozen=True)
 class Totals:
-    subtotal: float
+    subtotal: float  # merchandise, BEFORE any discount
+    discount: float  # dollars taken off the subtotal (0 if no code)
     shipping: float
     tax: float
     total: float
@@ -119,6 +120,19 @@ def validate_postal_code(country: str, postal_code: str | None) -> str:
     return code
 
 
+def validate_street_line(line1: str | None) -> str:
+    """Catches obviously incomplete input ("John", "my house") — not a
+    real-address check (that's USPS address verification, later).
+    Nearly every deliverable US address has a number in line 1,
+    PO boxes included ("PO Box 123")."""
+    line = (line1 or "").strip()
+    if not line:
+        raise PricingError("Address line 1 is required")
+    if not any(ch.isdigit() for ch in line):
+        raise PricingError("Include the street number in address line 1 (like 123 Main St)")
+    return line
+
+
 def shipping_for_subtotal(subtotal: float, config: dict) -> float:
     shipping_cfg = config.get("shipping", {})
     free_at = shipping_cfg.get("free_shipping_at")
@@ -140,32 +154,40 @@ def compute_totals(
     state: str | None,
     config: dict,
     tax_override: float | None = None,
+    discount: float = 0.0,
 ) -> Totals:
     """online=False is a walk-in POS sale: no shipping, the store's
     in-person tax_rate. tax_override is only ever passed through for
     staff (e.g. a tax-exempt sale) — the caller decides that, not
-    this function."""
+    this function.
+
+    discount comes off the subtotal FIRST; shipping tiers, the free
+    shipping threshold and tax all use the discounted amount (see
+    models/discount_code.py for why)."""
     subtotal = cents(subtotal)
+    discount = min(cents(discount), subtotal) if discount > 0 else 0.0
+    net = cents(Decimal(str(subtotal)) - Decimal(str(discount)))
     free_remaining = None
 
     if online:
-        shipping = shipping_for_subtotal(subtotal, config)
+        shipping = shipping_for_subtotal(net, config)
         tax_cfg = config.get("online_tax", {})
         rates = {normalize_state(k): v for k, v in tax_cfg.get("rates_by_state", {}).items()}
         rate = rates.get(normalize_state(state), 0.0)
-        taxable = subtotal + (shipping if tax_cfg.get("tax_shipping", True) else 0.0)
+        taxable = net + (shipping if tax_cfg.get("tax_shipping", True) else 0.0)
         free_at = config.get("shipping", {}).get("free_shipping_at")
-        if free_at is not None and subtotal < free_at:
-            free_remaining = cents(free_at - subtotal)
+        if free_at is not None and net < free_at:
+            free_remaining = cents(free_at - net)
     else:
         shipping = 0.0
         rate = config.get("tax_rate", 0.0)
-        taxable = subtotal
+        taxable = net
 
     tax = cents(tax_override) if tax_override is not None else cents(Decimal(str(taxable)) * Decimal(str(rate)))
-    total = cents(Decimal(str(subtotal)) + Decimal(str(shipping)) + Decimal(str(tax)))
+    total = cents(Decimal(str(net)) + Decimal(str(shipping)) + Decimal(str(tax)))
     return Totals(
         subtotal=subtotal,
+        discount=discount,
         shipping=shipping,
         tax=tax,
         total=total,
