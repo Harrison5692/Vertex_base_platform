@@ -215,3 +215,18 @@ async def test_stripe_configured_requires_card_for_customers(client, monkeypatch
     r = await client.post("/transactions/", json=_order(item.id, payment_method="cash"))
     assert r.status_code == 422
     assert "Card payment is required" in r.json()["detail"]
+
+
+async def test_bad_zip_rejected_with_clear_message(client):
+    item = await _make_item()
+    r = await client.post("/transactions/", json=_order(item.id, shipping_postal_code="123"))
+    assert r.status_code == 422
+    assert "ZIP" in r.json()["detail"]
+
+
+async def test_bad_guest_email_is_a_field_error(client):
+    item = await _make_item()
+    r = await client.post("/transactions/", json=_order(item.id, guest_email="test@test"))
+    assert r.status_code == 422
+    # A list entry naming the field — what the frontend maps to the input.
+    assert any(e["loc"][-1] == "guest_email" for e in r.json()["detail"])

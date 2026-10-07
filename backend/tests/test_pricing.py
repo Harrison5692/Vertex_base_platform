@@ -7,6 +7,7 @@ from app.core.pricing import (
     compute_totals,
     shipping_for_subtotal,
     validate_destination,
+    validate_postal_code,
 )
 
 CONFIG = {
@@ -107,3 +108,14 @@ def test_rejects_bad_state():
         validate_destination("US", "Texas", CONFIG)
     with pytest.raises(PricingError, match="required"):
         validate_destination("US", "", CONFIG)
+
+
+@pytest.mark.parametrize("code", ["77002", "77002-1234", " 77002 "])
+def test_valid_zip(code):
+    assert validate_postal_code("US", code) == code.strip()
+
+
+@pytest.mark.parametrize("code", ["", "7700", "ABCDE", "77002-12"])
+def test_invalid_zip(code):
+    with pytest.raises(PricingError):
+        validate_postal_code("US", code)

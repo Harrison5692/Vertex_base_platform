@@ -20,6 +20,25 @@ export function getAuthToken() {
 
 export { BASE_URL }
 
+const FIELD_LABELS = {
+  guest_email: 'Email',
+  shipping_name: 'Full name',
+  shipping_line1: 'Address line 1',
+  shipping_city: 'City',
+  shipping_state: 'State',
+  shipping_postal_code: 'ZIP code',
+  shipping_country: 'Country',
+  shipping_phone: 'Phone',
+  email: 'Email',
+  password: 'Password',
+}
+
+function friendlyFieldMessage(field, msg = '') {
+  if (field === 'guest_email' || field === 'email') return 'Enter a valid email address.'
+  const label = FIELD_LABELS[field] || field.replace(/_/g, ' ')
+  return `${label}: ${msg}.`
+}
+
 async function request(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers }
   if (authToken) {
@@ -41,7 +60,24 @@ async function request(path, options = {}) {
     }
     const err = new Error(`API error ${res.status}: ${body}`)
     err.status = res.status
-    err.detail = typeof detail === 'string' ? detail : undefined
+    // FastAPI validation errors (422) arrive as a LIST, one entry per
+    // bad field: [{loc: ['body', 'guest_email'], msg: '...'}]. Turn
+    // that into fieldErrors ({guest_email: 'Enter a valid email
+    // address'}) plus a readable summary, instead of dropping it and
+    // leaving callers to show a generic (and misleading) message.
+    if (Array.isArray(detail)) {
+      err.fieldErrors = {}
+      for (const entry of detail) {
+        const field = Array.isArray(entry?.loc) ? entry.loc[entry.loc.length - 1] : null
+        if (typeof field === 'string' && !err.fieldErrors[field]) {
+          err.fieldErrors[field] = friendlyFieldMessage(field, entry.msg)
+        }
+      }
+      const messages = Object.values(err.fieldErrors)
+      err.detail = messages.length ? messages.join(' ') : undefined
+    } else {
+      err.detail = typeof detail === 'string' ? detail : undefined
+    }
     throw err
   }
   if (res.status === 204) return null

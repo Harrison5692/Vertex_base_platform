@@ -32,7 +32,13 @@ from app.core.config import settings
 from app.core.deps import get_current_account, get_current_account_optional, require_min_tier
 from app.core.email import get_email_provider
 from app.core.payments import get_payment_provider
-from app.core.pricing import PricingError, Totals, compute_totals, validate_destination
+from app.core.pricing import (
+    PricingError,
+    Totals,
+    compute_totals,
+    validate_destination,
+    validate_postal_code,
+)
 from app.core.stock import maybe_notify_low_stock
 from app.db.session import get_session
 from app.models.account import Account
@@ -337,6 +343,9 @@ async def create_transaction(
         try:
             tx_in.shipping_country, tx_in.shipping_state = validate_destination(
                 tx_in.shipping_country, tx_in.shipping_state, client_config
+            )
+            tx_in.shipping_postal_code = validate_postal_code(
+                tx_in.shipping_country, tx_in.shipping_postal_code
             )
         except PricingError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

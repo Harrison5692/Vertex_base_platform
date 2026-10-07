@@ -38,6 +38,7 @@ step that produces a charged amount — float math alone produces
 things like 8.250000000000002 on a receipt or a Stripe amount.
 """
 
+import re
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -104,6 +105,18 @@ def validate_destination(country: str | None, state: str | None, config: dict) -
     if norm_country == "US" and norm_state not in US_STATES:
         raise PricingError(f"'{state}' isn't a valid US state code (e.g. TX)")
     return norm_country, norm_state
+
+
+_US_ZIP = re.compile(r"^\d{5}(-\d{4})?$")
+
+
+def validate_postal_code(country: str, postal_code: str | None) -> str:
+    code = (postal_code or "").strip()
+    if not code:
+        raise PricingError("A ZIP code is required")
+    if country == "US" and not _US_ZIP.match(code):
+        raise PricingError("Enter a 5-digit ZIP code (like 77002)")
+    return code
 
 
 def shipping_for_subtotal(subtotal: float, config: dict) -> float:

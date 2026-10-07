@@ -32,6 +32,33 @@ const EMPTY_SHIPPING = {
   shipping_phone: '',
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const US_ZIP_RE = /^\d{5}(-\d{4})?$/
+
+const REQUIRED_SHIPPING = [
+  ['shipping_name', 'Full name'],
+  ['shipping_line1', 'Address line 1'],
+  ['shipping_city', 'City'],
+  ['shipping_state', 'State'],
+  ['shipping_postal_code', 'ZIP code'],
+]
+
+const INPUT_BASE =
+  'w-full rounded-lg border px-3 py-1.5 text-sm focus:outline-none disabled:bg-gray-50 disabled:text-gray-500'
+
+function inputClass(hasError) {
+  return `${INPUT_BASE} ${
+    hasError
+      ? 'border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500'
+      : 'border-gray-300 focus:border-brand-500'
+  }`
+}
+
+function FieldError({ message }) {
+  if (!message) return null
+  return <p className="mt-0.5 text-xs text-red-600">{message}</p>
+}
+
 function CartLine({ line, onUpdateQuantity, onRemove }) {
   return (
     <li className="flex items-center gap-3 py-3">
@@ -143,6 +170,10 @@ export default function Cart() {
   // checkout charges with, so what's shown is what's charged.
   const [rawQuote, setQuote] = useState(null)
   const [quoteError, setQuoteError] = useState(null)
+  // Per-field problems ({shipping_city: 'City is required.'}), shown
+  // under each input and as one summary line — so a customer always
+  // knows exactly which box to fix, instead of a greyed-out button.
+  const [fieldErrors, setFieldErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [receipt, setReceipt] = useState(null)
@@ -220,14 +251,40 @@ export default function Cart() {
   const quote = cart.length > 0 ? rawQuote : null
   const subtotal = quote?.subtotal ?? cart.reduce((sum, l) => sum + l.unit_price * l.quantity, 0)
   const total = quote?.total
-  const shippingComplete =
-    !needsShipping ||
-    (shipping.shipping_name &&
-      shipping.shipping_line1 &&
-      shipping.shipping_city &&
-      shipping.shipping_state &&
-      shipping.shipping_postal_code &&
-      shipping.shipping_country)
+  function validateCheckout() {
+    const errors = {}
+    if (needsShipping) {
+      if (!user) {
+        if (!guestEmail.trim()) errors.guest_email = 'Email is required for your receipt.'
+        else if (!EMAIL_RE.test(guestEmail.trim()))
+          errors.guest_email = 'Enter a valid email address (like you@example.com).'
+      }
+      for (const [field, label] of REQUIRED_SHIPPING) {
+        if (!String(shipping[field] ?? '').trim()) errors[field] = `${label} is required.`
+      }
+      if (
+        !errors.shipping_postal_code &&
+        shipping.shipping_country === 'US' &&
+        !US_ZIP_RE.test(shipping.shipping_postal_code.trim())
+      ) {
+        errors.shipping_postal_code = 'Enter a 5-digit ZIP code (like 77002).'
+      }
+    }
+    return errors
+  }
+
+  function clearFieldError(field) {
+    setFieldErrors((prev) => {
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
+  function updateShipping(field, value) {
+    setShipping((prev) => ({ ...prev, [field]: value }))
+    if (fieldErrors[field]) clearFieldError(field)
+  }
 
   // Online order paying by card, with Stripe actually configured: this
   // deployment is meant to charge for real.
@@ -235,12 +292,10 @@ export default function Cart() {
 
   async function handleCheckout() {
     if (cart.length === 0) return
-    if (!shippingComplete) {
-      setError('Enter a complete shipping address before checking out.')
-      return
-    }
-    if (!user && needsShipping && !guestEmail) {
-      setError('Enter an email so we can send your receipt.')
+    const errors = validateCheckout()
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      setError(null)
       return
     }
     setSubmitting(true)
@@ -292,7 +347,14 @@ export default function Cart() {
     } catch (err) {
       // A declined card (402) gets its actual reason from the server;
       // anything else falls back to the generic message as before.
-      setError(err?.detail || 'Checkout failed — one of the items may no longer exist.')
+      // A field the server rejected gets outlined just like a
+      // client-side one; anything else shows its actual reason.
+      if (err?.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
+        setFieldErrors(err.fieldErrors)
+        setError(null)
+      } else {
+        setError(err?.detail || 'Checkout failed — please try again.')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -416,10 +478,14 @@ export default function Cart() {
                 <input
                   type="email"
                   value={guestEmail}
-                  onChange={(e) => setGuestEmail(e.target.value)}
+                  onChange={(e) => {
+                    setGuestEmail(e.target.value)
+                    if (fieldErrors.guest_email) clearFieldError('guest_email')
+                  }}
                   placeholder="you@example.com"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                  className={inputClass(fieldErrors.guest_email)}
                 />
+                <FieldError message={fieldErrors.guest_email} />
               </label>
               <button
                 type="button"
@@ -434,69 +500,93 @@ export default function Cart() {
           {needsShipping && (
             <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
               <p className="text-sm font-medium text-gray-700">Shipping address</p>
-              <input
-                value={shipping.shipping_name}
-                onChange={(e) => setShipping({ ...shipping, shipping_name: e.target.value })}
-                placeholder="Full name"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-              />
-              <input
-                value={shipping.shipping_line1}
-                onChange={(e) => setShipping({ ...shipping, shipping_line1: e.target.value })}
-                placeholder="Address line 1"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-              />
+              <div>
+                <input
+                  value={shipping.shipping_name}
+                  onChange={(e) => updateShipping('shipping_name', e.target.value)}
+                  placeholder="Full name"
+                  autoComplete="name"
+                  className={inputClass(fieldErrors.shipping_name)}
+                />
+                <FieldError message={fieldErrors.shipping_name} />
+              </div>
+              <div>
+                <input
+                  value={shipping.shipping_line1}
+                  onChange={(e) => updateShipping('shipping_line1', e.target.value)}
+                  placeholder="Address line 1"
+                  autoComplete="address-line1"
+                  className={inputClass(fieldErrors.shipping_line1)}
+                />
+                <FieldError message={fieldErrors.shipping_line1} />
+              </div>
               <input
                 value={shipping.shipping_line2}
-                onChange={(e) => setShipping({ ...shipping, shipping_line2: e.target.value })}
+                onChange={(e) => updateShipping('shipping_line2', e.target.value)}
                 placeholder="Address line 2 (optional)"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                autoComplete="address-line2"
+                className={inputClass(false)}
               />
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  value={shipping.shipping_city}
-                  onChange={(e) => setShipping({ ...shipping, shipping_city: e.target.value })}
-                  placeholder="City"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-                />
-                <select
-                  value={shipping.shipping_state}
-                  onChange={(e) => setShipping({ ...shipping, shipping_state: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-                >
-                  <option value="">State</option>
-                  {US_STATES.map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={shipping.shipping_postal_code}
-                  onChange={(e) =>
-                    setShipping({ ...shipping, shipping_postal_code: e.target.value })
-                  }
-                  placeholder="Postal code"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
-                />
-                <select
-                  value={shipping.shipping_country}
-                  onChange={(e) => setShipping({ ...shipping, shipping_country: e.target.value })}
-                  disabled={allowedCountries.length === 1}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500"
-                >
-                  {allowedCountries.map((code) => (
-                    <option key={code} value={code}>
-                      {code === 'US' ? 'United States' : code}
-                    </option>
-                  ))}
-                </select>
+                <div>
+                  <input
+                    value={shipping.shipping_city}
+                    onChange={(e) => updateShipping('shipping_city', e.target.value)}
+                    placeholder="City"
+                    autoComplete="address-level2"
+                    className={inputClass(fieldErrors.shipping_city)}
+                  />
+                  <FieldError message={fieldErrors.shipping_city} />
+                </div>
+                <div>
+                  <select
+                    value={shipping.shipping_state}
+                    onChange={(e) => updateShipping('shipping_state', e.target.value)}
+                    autoComplete="address-level1"
+                    className={inputClass(fieldErrors.shipping_state)}
+                  >
+                    <option value="">State</option>
+                    {US_STATES.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldError message={fieldErrors.shipping_state} />
+                </div>
+                <div>
+                  <input
+                    value={shipping.shipping_postal_code}
+                    onChange={(e) => updateShipping('shipping_postal_code', e.target.value)}
+                    placeholder="ZIP code"
+                    inputMode="numeric"
+                    autoComplete="postal-code"
+                    className={inputClass(fieldErrors.shipping_postal_code)}
+                  />
+                  <FieldError message={fieldErrors.shipping_postal_code} />
+                </div>
+                <div>
+                  <select
+                    value={shipping.shipping_country}
+                    onChange={(e) => updateShipping('shipping_country', e.target.value)}
+                    disabled={allowedCountries.length === 1}
+                    className={inputClass(fieldErrors.shipping_country)}
+                  >
+                    {allowedCountries.map((code) => (
+                      <option key={code} value={code}>
+                        {code === 'US' ? 'United States' : code}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldError message={fieldErrors.shipping_country} />
+                </div>
               </div>
               <input
                 value={shipping.shipping_phone}
-                onChange={(e) => setShipping({ ...shipping, shipping_phone: e.target.value })}
+                onChange={(e) => updateShipping('shipping_phone', e.target.value)}
                 placeholder="Phone (optional)"
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-brand-500 focus:outline-none"
+                autoComplete="tel"
+                className={inputClass(false)}
               />
             </div>
           )}
@@ -583,15 +673,19 @@ export default function Cart() {
             {quoteError && <p className="pt-1 text-xs text-red-600">{quoteError}</p>}
           </div>
 
+          {Object.keys(fieldErrors).length > 0 && (
+            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              Please fix: {Object.values(fieldErrors).join(' ')}
+            </p>
+          )}
+
+          {/* Deliberately NOT disabled for missing fields — clicking runs
+              validateCheckout() and shows exactly which fields need
+              attention, instead of a silently greyed-out button. */}
           <button
             onClick={handleCheckout}
             disabled={
-              cart.length === 0 ||
-              submitting ||
-              quote == null ||
-              !shippingComplete ||
-              (!user && needsShipping && !guestEmail) ||
-              (useStripeCharge && !stripePromise)
+              cart.length === 0 || submitting || quote == null || (useStripeCharge && !stripePromise)
             }
             className="mt-4 w-full rounded-lg bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
           >
